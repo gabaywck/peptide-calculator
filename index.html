@@ -630,26 +630,21 @@ async function authSubmit(){
     document.getElementById('auth-btn').textContent=authMode==='login'?'Entrar':'Crear cuenta';
   }finally{clearTimeout(slow);}
 }
-async function doLogout(){
-  try{await sb.auth.signOut();}catch(e){showDebug('signOut excepcion: '+(e?.message||e));}
+function doLogout(){
+  // No se espera a signOut(): el mismo cliente "sb" puede quedarse colgado tras un uso previo
+  // (confirmado en pruebas reales) y antes esto dejaba el boton "Salir" muerto para siempre.
+  // Cerrar sesion en el navegador (borrar el token local) no necesita confirmacion del servidor.
+  sb.auth.signOut().catch(e=>showDebug('signOut excepcion (ignorada, ya se cerro localmente): '+(e?.message||e)));
   clearStaleAuthStorage();currentUser=null;notesCache={};activeProtocols={};document.getElementById('app-screen').style.display='none';document.getElementById('auth-screen').style.display='block';
 }
 sb.auth.onAuthStateChange(async(ev,session)=>{
   console.log('[peptide-calc] onAuthStateChange:',ev,session?.user?'con sesion':'sin sesion');
   if(session?.user){currentUser=session.user;document.getElementById('auth-screen').style.display='none';document.getElementById('app-screen').style.display='block';document.getElementById('user-email-display').textContent=currentUser.email;await loadAllData();}
 });
-// Al cargar la pagina, si hay una sesion guardada con el token de refresco caducado/invalido de
-// verdad, Supabase la rechaza con un error - eso si se limpia sola. Pero OJO: una respuesta lenta
-// (visto en pruebas reales, Supabase a veces tarda) NO es lo mismo que una sesion invalida, y antes
-// se estaba borrando la sesion buena solo por tardar en confirmar - eso perdia el login sin motivo.
-(async function initAuth(){
-  try{
-    const{error}=await sb.auth.getSession();
-    if(error){showDebug('getSession error: '+error.message);clearStaleAuthStorage();showAuthMsg('Tu sesion anterior caduco, inicia sesion de nuevo.','error');}
-  }catch(e){
-    showDebug('getSession excepcion: '+(e?.message||e));
-  }
-})();
+// Nota: ya no se llama a sb.auth.getSession() aparte - onAuthStateChange ya recibe el evento
+// INITIAL_SESSION solo con la sesion guardada (o null) al cargar la pagina, y llamar a getSession()
+// por nuestra cuenta era un uso extra del mismo cliente "sb" que podia dejarlo colgado para el
+// siguiente signIn/signOut (confirmado en pruebas: el cliente reutilizado falla tras su primer uso).
 
 // ── SYNC ─────────────────────────────────────────
 function setSyncing(){document.getElementById('sync-dot').className='sync-dot syncing';}
