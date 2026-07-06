@@ -656,19 +656,20 @@ function setSynced(){document.getElementById('sync-dot').className='sync-dot';}
 function setSyncErr(){document.getElementById('sync-dot').className='sync-dot error';}
 
 // ── LOAD ─────────────────────────────────────────
-async function loadAllData(retry){
+// Confirmado en vivo: las consultas a Supabase a veces tardan bastante mas de 10s en responder
+// (no se cuelgan, solo van lentas), y un timeout corto + reintento las estaba dando por muertas
+// y descartando los datos justo antes de que llegaran - eso era el parpadeo (syncing->error->syncing).
+// Con un solo intento y margen amplio, se deja tiempo real a que la respuesta (lenta) llegue.
+async function loadAllData(){
   setSyncing();
   try{
     const[notesR,protoR]=await withTimeout(Promise.all([
       sb.from('cal_notes').select('date_key,note').eq('user_id',currentUser.id),
       sb.from('user_protocol').select('protocol_data').eq('user_id',currentUser.id).maybeSingle()
-    ]),10000,'carga de datos');
+    ]),30000,'carga de datos');
     if(notesR.error||protoR.error){
       const msg=(notesR.error||protoR.error).message;
       showDebug('loadAllData query error ('+(notesR.error?.code||protoR.error?.code||'?')+'): '+msg);
-      // Si el token quedo obsoleto justo tras iniciar sesion (carrera con el refresco automatico),
-      // se refresca a mano una vez y se reintenta antes de rendirse.
-      if(!retry){await withTimeout(sb.auth.refreshSession(),8000,'refresco de token').catch(()=>{});return loadAllData(true);}
       setSyncErr();
       return;
     }
@@ -680,8 +681,7 @@ async function loadAllData(retry){
     }
     setSynced();
   }catch(e){
-    showDebug('loadAllData excepcion'+(retry?' (tras reintento)':'')+': '+(e?.message||e));
-    if(!retry){try{await withTimeout(sb.auth.refreshSession(),8000,'refresco de token');return loadAllData(true);}catch(e2){}}
+    showDebug('loadAllData excepcion: '+(e?.message||e));
     setSyncErr();
   }
   const ti=toDateKey(new Date());
