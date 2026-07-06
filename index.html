@@ -577,6 +577,16 @@ function showDebug(txt){
 }
 window.addEventListener('unhandledrejection',ev=>showDebug('Promise sin capturar: '+(ev.reason?.message||ev.reason)));
 window.addEventListener('error',ev=>showDebug('Error JS: '+ev.message));
+// Las llamadas a Supabase (auth y consultas) no tienen timeout por defecto: si la red se cuelga
+// (visto en pruebas: un POST a /auth/v1/token se quedo "pending" para siempre), la app se queda
+// esperando indefinidamente sin avisar - eso es el parpadeo/"no sincroniza" que se ve sin cerrar sesion.
+// Con esto, tras 10s sin respuesta se da por fallida la llamada y se muestra un error en vez de colgarse.
+function withTimeout(promise,ms,label){
+  return Promise.race([
+    promise,
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error('Tiempo de espera agotado conectando con Supabase ('+label+')')),ms))
+  ]);
+}
 
 // ── AUTH ──────────────────────────────────────────
 let authMode='login';
@@ -590,26 +600,31 @@ async function authSubmit(email,pass,retry){
   document.getElementById('auth-btn').textContent='...';
   try{
     if(authMode==='login'){
-      const{error}=await sb.auth.signInWithPassword({email,password:pass});
+      const{error}=await withTimeout(sb.auth.signInWithPassword({email,password:pass}),10000,'login');
       if(error){
         showAuthMsg(error.message,'error');
         showDebug('Login fallo ('+(error.code||error.status||'?')+'): '+error.message+(retry?' [tras limpiar storage]':''));
         document.getElementById('auth-btn').textContent='Entrar';
       }
     }else{
-      const{error}=await sb.auth.signUp({email,password:pass});
+      const{error}=await withTimeout(sb.auth.signUp({email,password:pass}),10000,'registro');
       if(error){showAuthMsg(error.message,'error');showDebug('Registro fallo: '+error.message);}else{showAuthMsg('Cuenta creada! Revisa tu email.','success');}
       document.getElementById('auth-btn').textContent='Crear cuenta';
     }
   }catch(e){
-    // Sesion anterior corrupta (token invalido) bloqueando el login: se limpia una vez y se reintenta solo.
+    // Sesion anterior corrupta (token invalido), o la peticion de red se colgo sin responder
+    // (visto en pruebas reales: el POST a Supabase se queda "pending" para siempre) - en ambos
+    // casos se limpia el storage local y se reintenta una vez antes de rendirse.
     showDebug('Excepcion en authSubmit'+(retry?' (2o intento)':'')+': '+(e?.message||e));
     if(!retry){clearStaleAuthStorage();return authSubmit(email,pass,true);}
-    showAuthMsg('Error de conexion con el servidor. Recarga la pagina e intenta de nuevo.','error');
+    showAuthMsg('No se pudo conectar con el servidor. Revisa tu conexion e intenta de nuevo.','error');
     document.getElementById('auth-btn').textContent=authMode==='login'?'Entrar':'Crear cuenta';
   }
 }
-async function doLogout(){await sb.auth.signOut();currentUser=null;notesCache={};activeProtocols={};document.getElementById('app-screen').style.display='none';document.getElementById('auth-screen').style.display='block';}
+async function doLogout(){
+  try{await withTimeout(sb.auth.signOut(),6000,'logout');}catch(e){showDebug('signOut excepcion/timeout: '+(e?.message||e));}
+  clearStaleAuthStorage();currentUser=null;notesCache={};activeProtocols={};document.getElementById('app-screen').style.display='none';document.getElementById('auth-screen').style.display='block';
+}
 sb.auth.onAuthStateChange(async(ev,session)=>{
   console.log('[peptide-calc] onAuthStateChange:',ev,session?.user?'con sesion':'sin sesion');
   if(session?.user){currentUser=session.user;document.getElementById('auth-screen').style.display='none';document.getElementById('app-screen').style.display='block';document.getElementById('user-email-display').textContent=currentUser.email;await loadAllData();}
@@ -619,12 +634,12 @@ sb.auth.onAuthStateChange(async(ev,session)=>{
 // "rota" hasta borrar cookies/datos del sitio a mano. Ahora se detecta y se limpia sola.
 (async function initAuth(){
   try{
-    const{error}=await sb.auth.getSession();
+    const{error}=await withTimeout(sb.auth.getSession(),10000,'getSession inicial');
     if(error){showDebug('getSession error: '+error.message);clearStaleAuthStorage();showAuthMsg('Tu sesion anterior caduco, inicia sesion de nuevo.','error');}
   }catch(e){
-    showDebug('getSession excepcion: '+(e?.message||e));
+    showDebug('getSession excepcion/timeout: '+(e?.message||e));
     clearStaleAuthStorage();
-    showAuthMsg('Tu sesion anterior caduco, inicia sesion de nuevo.','error');
+    showAuthMsg('No se pudo conectar con Supabase al cargar. Inicia sesion de nuevo.','error');
   }
 })();
 
@@ -637,16 +652,16 @@ function setSyncErr(){document.getElementById('sync-dot').className='sync-dot er
 async function loadAllData(retry){
   setSyncing();
   try{
-    const[notesR,protoR]=await Promise.all([
+    const[notesR,protoR]=await withTimeout(Promise.all([
       sb.from('cal_notes').select('date_key,note').eq('user_id',currentUser.id),
       sb.from('user_protocol').select('protocol_data').eq('user_id',currentUser.id).maybeSingle()
-    ]);
+    ]),10000,'carga de datos');
     if(notesR.error||protoR.error){
       const msg=(notesR.error||protoR.error).message;
       showDebug('loadAllData query error ('+(notesR.error?.code||protoR.error?.code||'?')+'): '+msg);
       // Si el token quedo obsoleto justo tras iniciar sesion (carrera con el refresco automatico),
       // se refresca a mano una vez y se reintenta antes de rendirse.
-      if(!retry){await sb.auth.refreshSession();return loadAllData(true);}
+      if(!retry){await withTimeout(sb.auth.refreshSession(),8000,'refresco de token').catch(()=>{});return loadAllData(true);}
       setSyncErr();
       return;
     }
@@ -659,7 +674,7 @@ async function loadAllData(retry){
     setSynced();
   }catch(e){
     showDebug('loadAllData excepcion'+(retry?' (tras reintento)':'')+': '+(e?.message||e));
-    if(!retry){try{await sb.auth.refreshSession();return loadAllData(true);}catch(e2){}}
+    if(!retry){try{await withTimeout(sb.auth.refreshSession(),8000,'refresco de token');return loadAllData(true);}catch(e2){}}
     setSyncErr();
   }
   const ti=toDateKey(new Date());
