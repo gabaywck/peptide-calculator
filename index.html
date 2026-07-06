@@ -25,6 +25,9 @@ body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-ser
 .auth-msg.show{display:block;}
 .remember-row{display:flex;align-items:center;gap:7px;margin:-4px 0 14px;font-size:0.78rem;color:var(--muted);cursor:pointer;user-select:none;}
 .remember-row input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;}
+#debug-banner{display:none;max-width:380px;margin:0 auto 14px;background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.3);border-radius:10px;padding:10px 12px;font-size:0.7rem;color:var(--danger);font-family:'Space Mono',monospace;white-space:pre-wrap;word-break:break-word;}
+#debug-banner.show{display:block;}
+#debug-banner button{margin-top:8px;background:var(--danger);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:0.7rem;cursor:pointer;font-family:'Space Grotesk',sans-serif;}
 /* APP */
 #app-screen{display:none;}
 header{text-align:center;margin-bottom:24px;}
@@ -194,6 +197,7 @@ select option{background:var(--surface2);}
 </head>
 <body>
 
+<div id="debug-banner"></div>
 <!-- AUTH -->
 <div id="auth-screen">
   <div class="auth-logo">
@@ -556,6 +560,24 @@ let protoPhasesByPeptide={
   custom:[{weeks:4,dose:1,note:''}],
 };
 
+// ── DEBUG (panel visible para poder ver el error real sin abrir la consola) ──
+function showDebug(txt){
+  const e=document.getElementById('debug-banner');
+  const stamp=new Date().toLocaleTimeString('es-ES');
+  e.textContent=`[${stamp}] ${txt}`;
+  e.classList.add('show');
+  if(!document.getElementById('debug-copy-btn')){
+    const b=document.createElement('button');
+    b.id='debug-copy-btn';
+    b.textContent='Copiar error';
+    b.onclick=()=>navigator.clipboard.writeText(e.textContent.replace('Copiar error',''));
+    e.appendChild(document.createElement('br'));
+    e.appendChild(b);
+  }
+}
+window.addEventListener('unhandledrejection',ev=>showDebug('Promise sin capturar: '+(ev.reason?.message||ev.reason)));
+window.addEventListener('error',ev=>showDebug('Error JS: '+ev.message));
+
 // ── AUTH ──────────────────────────────────────────
 let authMode='login';
 function switchAuthTab(m,el){authMode=m;document.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');document.getElementById('auth-btn').textContent=m==='login'?'Entrar':'Crear cuenta';document.getElementById('auth-msg').classList.remove('show');}
@@ -569,14 +591,19 @@ async function authSubmit(email,pass,retry){
   try{
     if(authMode==='login'){
       const{error}=await sb.auth.signInWithPassword({email,password:pass});
-      if(error){showAuthMsg(error.message,'error');document.getElementById('auth-btn').textContent='Entrar';}
+      if(error){
+        showAuthMsg(error.message,'error');
+        showDebug('Login fallo ('+(error.code||error.status||'?')+'): '+error.message+(retry?' [tras limpiar storage]':''));
+        document.getElementById('auth-btn').textContent='Entrar';
+      }
     }else{
       const{error}=await sb.auth.signUp({email,password:pass});
-      if(error){showAuthMsg(error.message,'error');}else{showAuthMsg('Cuenta creada! Revisa tu email.','success');}
+      if(error){showAuthMsg(error.message,'error');showDebug('Registro fallo: '+error.message);}else{showAuthMsg('Cuenta creada! Revisa tu email.','success');}
       document.getElementById('auth-btn').textContent='Crear cuenta';
     }
   }catch(e){
     // Sesion anterior corrupta (token invalido) bloqueando el login: se limpia una vez y se reintenta solo.
+    showDebug('Excepcion en authSubmit'+(retry?' (2o intento)':'')+': '+(e?.message||e));
     if(!retry){clearStaleAuthStorage();return authSubmit(email,pass,true);}
     showAuthMsg('Error de conexion con el servidor. Recarga la pagina e intenta de nuevo.','error');
     document.getElementById('auth-btn').textContent=authMode==='login'?'Entrar':'Crear cuenta';
@@ -584,6 +611,7 @@ async function authSubmit(email,pass,retry){
 }
 async function doLogout(){await sb.auth.signOut();currentUser=null;notesCache={};activeProtocols={};document.getElementById('app-screen').style.display='none';document.getElementById('auth-screen').style.display='block';}
 sb.auth.onAuthStateChange(async(ev,session)=>{
+  console.log('[peptide-calc] onAuthStateChange:',ev,session?.user?'con sesion':'sin sesion');
   if(session?.user){currentUser=session.user;document.getElementById('auth-screen').style.display='none';document.getElementById('app-screen').style.display='block';document.getElementById('user-email-display').textContent=currentUser.email;await loadAllData();}
 });
 // Al cargar la pagina, si hay una sesion guardada corrupta o con el token de refresco caducado,
@@ -592,8 +620,9 @@ sb.auth.onAuthStateChange(async(ev,session)=>{
 (async function initAuth(){
   try{
     const{error}=await sb.auth.getSession();
-    if(error){clearStaleAuthStorage();showAuthMsg('Tu sesion anterior caduco, inicia sesion de nuevo.','error');}
+    if(error){showDebug('getSession error: '+error.message);clearStaleAuthStorage();showAuthMsg('Tu sesion anterior caduco, inicia sesion de nuevo.','error');}
   }catch(e){
+    showDebug('getSession excepcion: '+(e?.message||e));
     clearStaleAuthStorage();
     showAuthMsg('Tu sesion anterior caduco, inicia sesion de nuevo.','error');
   }
@@ -605,21 +634,34 @@ function setSynced(){document.getElementById('sync-dot').className='sync-dot';}
 function setSyncErr(){document.getElementById('sync-dot').className='sync-dot error';}
 
 // ── LOAD ─────────────────────────────────────────
-async function loadAllData(){
+async function loadAllData(retry){
   setSyncing();
   try{
     const[notesR,protoR]=await Promise.all([
       sb.from('cal_notes').select('date_key,note').eq('user_id',currentUser.id),
       sb.from('user_protocol').select('protocol_data').eq('user_id',currentUser.id).maybeSingle()
     ]);
+    if(notesR.error||protoR.error){
+      const msg=(notesR.error||protoR.error).message;
+      showDebug('loadAllData query error ('+(notesR.error?.code||protoR.error?.code||'?')+'): '+msg);
+      // Si el token quedo obsoleto justo tras iniciar sesion (carrera con el refresco automatico),
+      // se refresca a mano una vez y se reintenta antes de rendirse.
+      if(!retry){await sb.auth.refreshSession();return loadAllData(true);}
+      setSyncErr();
+      return;
+    }
     notesCache={};
-    if(notesR.data)notesR.data.forEach(n=>{notesCache[n.date_key]=n.note;});
+    notesR.data.forEach(n=>{notesCache[n.date_key]=n.note;});
     if(protoR.data?.protocol_data){
       activeProtocols=protoR.data.protocol_data;
       Object.keys(activeProtocols).forEach(p=>{if(activeProtocols[p]?.phases)protoPhasesByPeptide[p]=activeProtocols[p].phases.map(x=>({...x}));});
     }
     setSynced();
-  }catch(e){setSyncErr();}
+  }catch(e){
+    showDebug('loadAllData excepcion'+(retry?' (tras reintento)':'')+': '+(e?.message||e));
+    if(!retry){try{await sb.auth.refreshSession();return loadAllData(true);}catch(e2){}}
+    setSyncErr();
+  }
   const ti=toDateKey(new Date());
   document.getElementById('proto-start').value=ti;
   document.getElementById('prog-date').value=ti;
