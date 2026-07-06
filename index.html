@@ -556,6 +556,13 @@ function clearStaleAuthStorage(){
 // el bloqueo (esta app es de una sola pestaña, no necesita coordinar sesion entre varias) el mismo
 // getSession que llevaba minutos colgado responde al instante.
 const sb=supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{storage:authStorage,persistSession:true,autoRefreshToken:true,lock:(name,acquireTimeout,fn)=>fn()}});
+// Segundo hallazgo, tambien confirmado en vivo con datos reales: incluso con el lock desactivado,
+// el cliente "sb" se queda pillado para futuras consultas despues de la primera tanda (el HTTP
+// responde 200 pero la promesa de esta libreria nunca se resuelve) - un cliente nuevo para esa
+// misma consulta responde al instante (probado: 484ms vs colgado 15s+). Por eso las consultas de
+// datos (todo lo que es sb.from/sb.storage) usan un cliente recien creado cada vez, y "sb" se
+// reserva solo para login/logout/sesion, que si funcionan de forma fiable reutilizando el cliente.
+function dataClient(){return supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{storage:authStorage,persistSession:true,autoRefreshToken:true,lock:(name,acquireTimeout,fn)=>fn()}});}
 let currentUser=null,notesCache={},activeProtocols={},currentProtoPeptide='retatrutide';
 const PEPTIDE_COLORS={retatrutide:'#7c6aff',ghkcu:'#4fffb0',mt2:'#ff9f43',custom:'#ff6b9d'};
 const PEPTIDE_NAMES={retatrutide:'Retatrutide',ghkcu:'GHK-Cu',mt2:'Melanotan 2',custom:'Custom'};
@@ -659,8 +666,8 @@ async function loadAllData(){
   const slow=setTimeout(()=>showDebug('La carga de datos esta tardando mas de lo normal, esperando a Supabase...'),8000);
   try{
     const[notesR,protoR]=await Promise.all([
-      sb.from('cal_notes').select('date_key,note').eq('user_id',currentUser.id),
-      sb.from('user_protocol').select('protocol_data').eq('user_id',currentUser.id).maybeSingle()
+      dataClient().from('cal_notes').select('date_key,note').eq('user_id',currentUser.id),
+      dataClient().from('user_protocol').select('protocol_data').eq('user_id',currentUser.id).maybeSingle()
     ]);
     clearTimeout(slow);
     if(notesR.error||protoR.error){
@@ -714,8 +721,8 @@ function renderProtoPhases(){const phases=protoPhasesByPeptide[currentProtoPepti
 function addPhase(){const ph=protoPhasesByPeptide[currentProtoPeptide];const last=ph.length?ph[ph.length-1].dose:0;ph.push({weeks:4,dose:+(last+0.5).toFixed(2),note:''});renderProtoPhases();}
 function removePhase(idx){const ph=protoPhasesByPeptide[currentProtoPeptide];if(ph.length<=1)return;ph.splice(idx,1);renderProtoPhases();}
 function calcProtoSummary(){const p=currentProtoPeptide,ph=protoPhasesByPeptide[p];document.getElementById('proto-summary-card').style.display='block';const tw=ph.reduce((s,x)=>s+(parseInt(x.weeks)||0),0);const sv=document.getElementById('proto-start').value;let eds='-';if(sv){const ed=fromDateKey(sv);ed.setDate(ed.getDate()+tw*7);eds=ed.toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'});}document.getElementById('proto-summary').innerHTML=ph.map((x,i)=>{const wf=ph.slice(0,i).reduce((s,y)=>s+(parseInt(y.weeks)||0),0)+1,wt=wf+(parseInt(x.weeks)||1)-1;return`<div class="proto-summary-row"><span class="k">Sem ${wf}-${wt} ${x.note?'· '+x.note:''}</span><span class="v">${x.dose} mg</span></div>`;}).join('')+`<div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--border)"><div class="proto-summary-row"><span class="k">Total</span><span class="v">${tw} semanas</span></div><div class="proto-summary-row"><span class="k">Fin</span><span class="v">${eds}</span></div></div>`;}
-async function applyProto(){const p=currentProtoPeptide,sv=document.getElementById('proto-start').value;if(!sv){alert('Pon fecha de inicio');return;}activeProtocols[p]={startDate:sv,freq:parseInt(document.getElementById('proto-freq').value),peptido:p,phases:protoPhasesByPeptide[p].map(x=>({weeks:parseInt(x.weeks)||1,dose:parseFloat(x.dose)||0,note:x.note}))};setSyncing();try{await sb.from('user_protocol').upsert({user_id:currentUser.id,protocol_data:activeProtocols,updated_at:new Date().toISOString()},{onConflict:'user_id'});setSynced();}catch(e){setSyncErr();}renderActiveProtoList();renderCalendar();document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.getElementById('panel-calendario').classList.add('active');document.querySelectorAll('.tab')[4].classList.add('active');}
-function removeActiveProto(p){delete activeProtocols[p];sb.from('user_protocol').upsert({user_id:currentUser.id,protocol_data:activeProtocols,updated_at:new Date().toISOString()},{onConflict:'user_id'});renderActiveProtoList();renderCalendar();}
+async function applyProto(){const p=currentProtoPeptide,sv=document.getElementById('proto-start').value;if(!sv){alert('Pon fecha de inicio');return;}activeProtocols[p]={startDate:sv,freq:parseInt(document.getElementById('proto-freq').value),peptido:p,phases:protoPhasesByPeptide[p].map(x=>({weeks:parseInt(x.weeks)||1,dose:parseFloat(x.dose)||0,note:x.note}))};setSyncing();try{await dataClient().from('user_protocol').upsert({user_id:currentUser.id,protocol_data:activeProtocols,updated_at:new Date().toISOString()},{onConflict:'user_id'});setSynced();}catch(e){setSyncErr();}renderActiveProtoList();renderCalendar();document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.getElementById('panel-calendario').classList.add('active');document.querySelectorAll('.tab')[4].classList.add('active');}
+function removeActiveProto(p){delete activeProtocols[p];dataClient().from('user_protocol').upsert({user_id:currentUser.id,protocol_data:activeProtocols,updated_at:new Date().toISOString()},{onConflict:'user_id'});renderActiveProtoList();renderCalendar();}
 function renderActiveProtoList(){const list=document.getElementById('active-proto-list'),keys=Object.keys(activeProtocols);if(!keys.length){list.innerHTML='<div style="color:var(--muted);font-size:0.78rem;padding:6px 0">Ningun protocolo activo</div>';return;}list.innerHTML=keys.map(p=>{const ap=activeProtocols[p],tw=ap.phases.reduce((s,x)=>s+x.weeks,0);const ed=fromDateKey(ap.startDate);ed.setDate(ed.getDate()+tw*7);const today=new Date();today.setHours(0,0,0,0);const dl=Math.ceil((ed-today)/86400000);return`<div class="active-proto-item" style="border-left-color:${PEPTIDE_COLORS[p]}"><div><div style="font-weight:600;font-size:0.84rem;display:flex;align-items:center;gap:6px"><span class="chip" style="background:${PEPTIDE_COLORS[p]}"></span>${PEPTIDE_NAMES[p]}</div><div style="font-size:0.71rem;color:var(--muted);margin-top:2px">${ap.startDate} → ${ed.toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'})} · ${dl>0?dl+' dias':' Finalizado'}</div></div><button class="btn sm danger" onclick="removeActiveProto('${p}')" style="margin-top:0">Quitar</button></div>`;}).join('');}
 
 // ── HELPERS ──────────────────────────────────────
@@ -817,7 +824,7 @@ function showDayDetail(key){
     body.innerHTML='<div class="no-dose-msg"><div style="font-size:1.2rem;margin-bottom:6px">😴</div><div style="color:var(--text);font-weight:600;margin-bottom:2px">Descanso</div>'+nxt+'</div>';
   }
 }
-async function saveNote(){if(!calSelectedDate||!currentUser)return;const text=document.getElementById('day-note').value.trim();setSyncing();try{if(text){await sb.from('cal_notes').upsert({user_id:currentUser.id,date_key:calSelectedDate,note:text},{onConflict:'user_id,date_key'});notesCache[calSelectedDate]=text;}else{await sb.from('cal_notes').delete().eq('user_id',currentUser.id).eq('date_key',calSelectedDate);delete notesCache[calSelectedDate];}setSynced();const m=document.getElementById('note-saved-msg');m.classList.add('show');setTimeout(()=>m.classList.remove('show'),2000);renderCalendar();}catch(e){setSyncErr();}}
+async function saveNote(){if(!calSelectedDate||!currentUser)return;const text=document.getElementById('day-note').value.trim();setSyncing();try{if(text){await dataClient().from('cal_notes').upsert({user_id:currentUser.id,date_key:calSelectedDate,note:text},{onConflict:'user_id,date_key'});notesCache[calSelectedDate]=text;}else{await dataClient().from('cal_notes').delete().eq('user_id',currentUser.id).eq('date_key',calSelectedDate);delete notesCache[calSelectedDate];}setSynced();const m=document.getElementById('note-saved-msg');m.classList.add('show');setTimeout(()=>m.classList.remove('show'),2000);renderCalendar();}catch(e){setSyncErr();}}
 function loadNoteForDay(key){document.getElementById('day-note').value=notesCache[key]||'';}
 
 // ── TAB 6: PEPCALC ───────────────────────────────
@@ -943,7 +950,7 @@ async function savePepCalc(){
   const note=document.getElementById('pc-note').value.trim();
   setSyncing();
   try{
-    await sb.from('pepcalc_history').insert({user_id:currentUser.id,peptide_name:pepName,syringe_ml:pcSyringeML,vial_mg:pcVialVal,bac_water_ml:pcWaterVal,dose_mcg:pcDoseVal,units_to_pull:parseFloat(unitsNeeded.toFixed(1)),note});
+    await dataClient().from('pepcalc_history').insert({user_id:currentUser.id,peptide_name:pepName,syringe_ml:pcSyringeML,vial_mg:pcVialVal,bac_water_ml:pcWaterVal,dose_mcg:pcDoseVal,units_to_pull:parseFloat(unitsNeeded.toFixed(1)),note});
     setSynced();
     await loadPepCalcHistory();
     document.getElementById('pc-note').value='';
@@ -952,7 +959,7 @@ async function savePepCalc(){
 }
 async function loadPepCalcHistory(){
   if(!currentUser)return;
-  const{data}=await sb.from('pepcalc_history').select('*').eq('user_id',currentUser.id).order('saved_at',{ascending:false}).limit(20);
+  const{data}=await dataClient().from('pepcalc_history').select('*').eq('user_id',currentUser.id).order('saved_at',{ascending:false}).limit(20);
   const list=document.getElementById('pepcalc-history-list');
   if(!data||!data.length){list.innerHTML='<div style="color:var(--muted);font-size:0.78rem">Sin historial aun</div>';return;}
   list.innerHTML=data.map(function(h){
@@ -988,14 +995,14 @@ async function saveProgressEntry(){
   if(!date){alert('Pon la fecha');return;}
   setSyncing();
   try{
-    await sb.from('progress_log').upsert({user_id:currentUser.id,log_date:date,weight,note},{onConflict:'user_id,log_date'});
+    await dataClient().from('progress_log').upsert({user_id:currentUser.id,log_date:date,weight,note},{onConflict:'user_id,log_date'});
     for(let i=0;i<selectedPhotos.length;i++){
       const file=selectedPhotos[i];
       const ext=file.name.split('.').pop();
       const path=currentUser.id+'/'+date+'_'+i+'.'+ext;
-      await sb.storage.from('progress-photos').upload(path,file,{upsert:true});
-      const urlData=sb.storage.from('progress-photos').getPublicUrl(path);
-      await sb.from('progress_photos').insert({user_id:currentUser.id,log_date:date,photo_url:urlData.data.publicUrl});
+      await dataClient().storage.from('progress-photos').upload(path,file,{upsert:true});
+      const urlData=dataClient().storage.from('progress-photos').getPublicUrl(path);
+      await dataClient().from('progress_photos').insert({user_id:currentUser.id,log_date:date,photo_url:urlData.data.publicUrl});
     }
     setSynced();
     selectedPhotos=[];
@@ -1011,8 +1018,8 @@ async function loadProgressLog(){
   const list=document.getElementById('progress-log-list');
   if(!currentUser){list.innerHTML='<div style="color:var(--muted);font-size:0.78rem">Inicia sesion para ver el historial</div>';return;}
   try{
-    const logR=await sb.from('progress_log').select('*').eq('user_id',currentUser.id).order('log_date',{ascending:false}).limit(30);
-    const photosR=await sb.from('progress_photos').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+    const logR=await dataClient().from('progress_log').select('*').eq('user_id',currentUser.id).order('log_date',{ascending:false}).limit(30);
+    const photosR=await dataClient().from('progress_photos').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false});
     if(logR.error)throw logR.error;
     const logs=logR.data||[],photos=photosR.data||[];
     const withWeight=logs.filter(function(l){return l.weight;});
