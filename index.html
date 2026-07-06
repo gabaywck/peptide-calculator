@@ -23,6 +23,8 @@ body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-ser
 .auth-msg.error{background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.3);color:var(--danger);}
 .auth-msg.success{background:rgba(79,255,176,0.1);border:1px solid rgba(79,255,176,0.3);color:var(--accent2);}
 .auth-msg.show{display:block;}
+.remember-row{display:flex;align-items:center;gap:7px;margin:-4px 0 14px;font-size:0.78rem;color:var(--muted);cursor:pointer;user-select:none;}
+.remember-row input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;}
 /* APP */
 #app-screen{display:none;}
 header{text-align:center;margin-bottom:24px;}
@@ -206,6 +208,7 @@ select option{background:var(--surface2);}
     <div id="auth-msg" class="auth-msg error"></div>
     <div class="field"><label>Email</label><input type="email" id="auth-email" placeholder="tu@email.com"></div>
     <div class="field"><label>Contrasena</label><input type="password" id="auth-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')authSubmit()"></div>
+    <label class="remember-row"><input type="checkbox" id="auth-remember" checked> Mantener sesión iniciada</label>
     <button class="btn" id="auth-btn" onclick="authSubmit()">Entrar</button>
   </div>
 </div>
@@ -525,7 +528,23 @@ select option{background:var(--surface2);}
 // ── SUPABASE ──────────────────────────────────────
 const SUPA_URL='https://nhkgwfqitizwrfmsdhpg.supabase.co';
 const SUPA_KEY='sb_publishable_DLh1-Sn2qqMtZnuCJYtvWA_lehkaQax';
-const sb=supabase.createClient(SUPA_URL,SUPA_KEY);
+// Storage a medida: si "Mantener sesion iniciada" esta marcado, el token va a localStorage (sobrevive cerrar el navegador);
+// si no, va a sessionStorage (se borra al cerrar la pestaña). Evita mezclar tokens viejos entre los dos.
+const REMEMBER_KEY='pc_remember';
+const authStorage={
+  getItem:(key)=>localStorage.getItem(key)??sessionStorage.getItem(key),
+  setItem:(key,value)=>{
+    const remember=localStorage.getItem(REMEMBER_KEY)!=='0';
+    if(remember){localStorage.setItem(key,value);sessionStorage.removeItem(key);}
+    else{sessionStorage.setItem(key,value);localStorage.removeItem(key);}
+  },
+  removeItem:(key)=>{localStorage.removeItem(key);sessionStorage.removeItem(key);}
+};
+function clearStaleAuthStorage(){
+  Object.keys(localStorage).filter(k=>k.startsWith('sb-')).forEach(k=>localStorage.removeItem(k));
+  Object.keys(sessionStorage).filter(k=>k.startsWith('sb-')).forEach(k=>sessionStorage.removeItem(k));
+}
+const sb=supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{storage:authStorage,persistSession:true,autoRefreshToken:true}});
 let currentUser=null,notesCache={},activeProtocols={},currentProtoPeptide='retatrutide';
 const PEPTIDE_COLORS={retatrutide:'#7c6aff',ghkcu:'#4fffb0',mt2:'#ff9f43',custom:'#ff6b9d'};
 const PEPTIDE_NAMES={retatrutide:'Retatrutide',ghkcu:'GHK-Cu',mt2:'Melanotan 2',custom:'Custom'};
@@ -541,17 +560,44 @@ let protoPhasesByPeptide={
 let authMode='login';
 function switchAuthTab(m,el){authMode=m;document.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');document.getElementById('auth-btn').textContent=m==='login'?'Entrar':'Crear cuenta';document.getElementById('auth-msg').classList.remove('show');}
 function showAuthMsg(txt,type){const e=document.getElementById('auth-msg');e.textContent=txt;e.className='auth-msg show '+type;}
-async function authSubmit(){
-  const email=document.getElementById('auth-email').value.trim(),pass=document.getElementById('auth-pass').value;
+async function authSubmit(email,pass,retry){
+  const isRetry=email!==undefined;
+  if(!isRetry){email=document.getElementById('auth-email').value.trim();pass=document.getElementById('auth-pass').value;}
   if(!email||!pass){showAuthMsg('Rellena email y contrasena','error');return;}
+  localStorage.setItem(REMEMBER_KEY,document.getElementById('auth-remember').checked?'1':'0');
   document.getElementById('auth-btn').textContent='...';
-  if(authMode==='login'){const{error}=await sb.auth.signInWithPassword({email,password:pass});if(error){showAuthMsg(error.message,'error');document.getElementById('auth-btn').textContent='Entrar';}}
-  else{const{error}=await sb.auth.signUp({email,password:pass});if(error){showAuthMsg(error.message,'error');}else{showAuthMsg('Cuenta creada! Revisa tu email.','success');}document.getElementById('auth-btn').textContent='Crear cuenta';}
+  try{
+    if(authMode==='login'){
+      const{error}=await sb.auth.signInWithPassword({email,password:pass});
+      if(error){showAuthMsg(error.message,'error');document.getElementById('auth-btn').textContent='Entrar';}
+    }else{
+      const{error}=await sb.auth.signUp({email,password:pass});
+      if(error){showAuthMsg(error.message,'error');}else{showAuthMsg('Cuenta creada! Revisa tu email.','success');}
+      document.getElementById('auth-btn').textContent='Crear cuenta';
+    }
+  }catch(e){
+    // Sesion anterior corrupta (token invalido) bloqueando el login: se limpia una vez y se reintenta solo.
+    if(!retry){clearStaleAuthStorage();return authSubmit(email,pass,true);}
+    showAuthMsg('Error de conexion con el servidor. Recarga la pagina e intenta de nuevo.','error');
+    document.getElementById('auth-btn').textContent=authMode==='login'?'Entrar':'Crear cuenta';
+  }
 }
 async function doLogout(){await sb.auth.signOut();currentUser=null;notesCache={};activeProtocols={};document.getElementById('app-screen').style.display='none';document.getElementById('auth-screen').style.display='block';}
 sb.auth.onAuthStateChange(async(ev,session)=>{
   if(session?.user){currentUser=session.user;document.getElementById('auth-screen').style.display='none';document.getElementById('app-screen').style.display='block';document.getElementById('user-email-display').textContent=currentUser.email;await loadAllData();}
 });
+// Al cargar la pagina, si hay una sesion guardada corrupta o con el token de refresco caducado,
+// Supabase la rechaza con un error en vez de simplemente dejarte fuera: antes esto dejaba la app
+// "rota" hasta borrar cookies/datos del sitio a mano. Ahora se detecta y se limpia sola.
+(async function initAuth(){
+  try{
+    const{error}=await sb.auth.getSession();
+    if(error){clearStaleAuthStorage();showAuthMsg('Tu sesion anterior caduco, inicia sesion de nuevo.','error');}
+  }catch(e){
+    clearStaleAuthStorage();
+    showAuthMsg('Tu sesion anterior caduco, inicia sesion de nuevo.','error');
+  }
+})();
 
 // ── SYNC ─────────────────────────────────────────
 function setSyncing(){document.getElementById('sync-dot').className='sync-dot syncing';}
