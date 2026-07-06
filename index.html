@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Peptide Calc</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+:root{--bg:#0a0a0f;--surface:#111118;--surface2:#18181f;--border:#2a2a35;--accent:#7c6aff;--accent2:#4fffb0;--text:#e8e8f0;--muted:#6b6b80;--danger:#ff6b6b;--warn:#ffb347;--c-ret:#7c6aff;--c-ghk:#4fffb0;--c-mt2:#ff9f43;--c-custom:#ff6b9d;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-serif;min-height:100vh;padding:20px 14px 40px;}
+/* AUTH */
+#auth-screen{max-width:380px;margin:60px auto;}
+.auth-logo{text-align:center;margin-bottom:32px;}
+.auth-logo h1{font-family:'Space Mono',monospace;font-size:1.5rem;color:var(--accent2);letter-spacing:-1px;}
+.auth-logo p{color:var(--muted);font-size:0.78rem;margin-top:4px;}
+.auth-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;}
+.auth-tabs{display:flex;gap:4px;background:var(--surface2);border-radius:8px;padding:3px;margin-bottom:20px;}
+.auth-tab{flex:1;background:none;border:none;color:var(--muted);font-family:'Space Grotesk',sans-serif;font-size:0.82rem;font-weight:600;padding:7px;border-radius:6px;cursor:pointer;transition:all 0.15s;}
+.auth-tab.active{background:var(--accent);color:#fff;}
+.auth-msg{border-radius:8px;padding:10px 12px;font-size:0.78rem;margin-bottom:12px;display:none;}
+.auth-msg.error{background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.3);color:var(--danger);}
+.auth-msg.success{background:rgba(79,255,176,0.1);border:1px solid rgba(79,255,176,0.3);color:var(--accent2);}
+.auth-msg.show{display:block;}
+/* APP */
+#app-screen{display:none;}
+header{text-align:center;margin-bottom:24px;}
+header h1{font-family:'Space Mono',monospace;font-size:1.4rem;letter-spacing:-1px;color:var(--accent2);}
+header p{color:var(--muted);font-size:0.72rem;margin-top:3px;}
+.user-bar{display:flex;justify-content:center;align-items:center;gap:10px;margin-top:7px;}
+.user-email{font-size:0.7rem;color:var(--muted);}
+.logout-btn{background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-family:'Space Grotesk',sans-serif;font-size:0.68rem;padding:3px 8px;cursor:pointer;}
+.logout-btn:hover{border-color:var(--danger);color:var(--danger);}
+.sync-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent2);margin-left:6px;vertical-align:middle;}
+.sync-dot.syncing{background:var(--warn);animation:pulse 1s infinite;}
+.sync-dot.error{background:var(--danger);}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+/* TABS */
+.tabs{display:flex;gap:2px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:3px;margin-bottom:18px;max-width:700px;margin-left:auto;margin-right:auto;overflow-x:auto;}
+.tab{flex:1;min-width:52px;background:none;border:none;color:var(--muted);font-family:'Space Grotesk',sans-serif;font-size:0.65rem;font-weight:500;padding:7px 2px;border-radius:7px;cursor:pointer;transition:all 0.15s;white-space:nowrap;}
+.tab.active{background:var(--accent);color:#fff;}
+.panel{display:none;max-width:700px;margin:0 auto;}
+.panel.active{display:block;}
+/* CARDS */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;}
+.card-title{font-family:'Space Mono',monospace;font-size:0.68rem;color:var(--accent);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px;}
+.field{margin-bottom:11px;}
+label{display:block;font-size:0.75rem;color:var(--muted);margin-bottom:4px;font-weight:500;}
+input,select,textarea{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Space Grotesk',sans-serif;font-size:0.86rem;padding:9px 11px;outline:none;transition:border 0.15s;}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);}
+select option{background:var(--surface2);}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.btn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;font-family:'Space Grotesk',sans-serif;font-size:0.86rem;font-weight:600;padding:10px;cursor:pointer;margin-top:4px;transition:opacity 0.15s;}
+.btn:hover{opacity:0.85;}
+.btn.sm{padding:6px 11px;font-size:0.75rem;width:auto;margin-top:0;}
+.btn.danger{background:var(--danger);}
+.btn.ghost{background:var(--surface2);border:1px solid var(--border);color:var(--text);}
+.btn.green{background:var(--accent2);color:#000;font-weight:700;}
+.result-box{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:13px;margin-top:12px;}
+.result-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:0.81rem;}
+.result-row:last-child{border-bottom:none;}
+.result-row .key{color:var(--muted);}
+.result-row .val{font-family:'Space Mono',monospace;color:var(--accent2);font-weight:700;}
+.esc-table{width:100%;border-collapse:collapse;font-size:0.8rem;margin-top:10px;}
+.esc-table th{font-family:'Space Mono',monospace;font-size:0.63rem;color:var(--muted);text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);letter-spacing:0.8px;}
+.esc-table td{padding:7px 9px;border-bottom:1px solid #1e1e28;vertical-align:top;}
+.esc-table tr.current-week td{background:rgba(124,106,255,0.12);}
+.esc-table td.dose-val{font-family:'Space Mono',monospace;color:var(--accent2);font-weight:700;}
+.badge{display:inline-block;font-size:0.6rem;font-weight:700;padding:2px 6px;border-radius:20px;text-transform:uppercase;}
+.badge.now{background:var(--accent);color:#fff;}
+.chip{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle;flex-shrink:0;}
+.tip{background:rgba(124,106,255,0.07);border:1px solid rgba(124,106,255,0.2);border-radius:8px;padding:9px 11px;font-size:0.75rem;color:var(--muted);margin-top:9px;line-height:1.5;}
+.tip strong{color:var(--accent2);}
+.disclaimer{font-size:0.68rem;color:var(--muted);text-align:center;margin-top:18px;line-height:1.5;}
+/* PEPTIDO BTNS */
+.peptido-card{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:12px;}
+.peptido-btn{background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'Space Grotesk',sans-serif;font-size:0.75rem;font-weight:600;padding:8px;cursor:pointer;transition:all 0.15s;text-align:center;}
+.peptido-btn.selected{border-color:var(--accent);color:var(--accent);background:rgba(124,106,255,0.08);}
+/* PROTOCOLO */
+.proto-peptide-tabs{display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;}
+.proto-ptab{background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'Space Grotesk',sans-serif;font-size:0.73rem;font-weight:600;padding:6px 11px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:5px;}
+.proto-ptab[data-p="retatrutide"].active{background:var(--c-ret);border-color:var(--c-ret);color:#fff;}
+.proto-ptab[data-p="ghkcu"].active{background:var(--c-ghk);border-color:var(--c-ghk);color:#000;}
+.proto-ptab[data-p="mt2"].active{background:var(--c-mt2);border-color:var(--c-mt2);color:#000;}
+.proto-ptab[data-p="custom"].active{background:var(--c-custom);border-color:var(--c-custom);color:#fff;}
+.proto-phase{background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:7px;display:flex;align-items:center;gap:9px;}
+.proto-phase-num{font-family:'Space Mono',monospace;font-size:0.62rem;color:var(--muted);min-width:18px;text-align:center;}
+.proto-phase-inputs{display:grid;grid-template-columns:65px 1fr 1fr;gap:7px;flex:1;}
+.proto-phase-inputs input{padding:6px 8px;font-size:0.8rem;}
+.proto-delete{background:none;border:none;color:var(--muted);font-size:0.95rem;cursor:pointer;padding:3px;border-radius:5px;}
+.proto-delete:hover{color:var(--danger);}
+.proto-header{display:grid;grid-template-columns:18px 65px 1fr 1fr 24px;gap:7px;padding:0 12px 5px;font-family:'Space Mono',monospace;font-size:0.58rem;color:var(--muted);letter-spacing:0.8px;}
+.proto-add-btn{background:none;border:1px dashed var(--border);border-radius:9px;color:var(--muted);font-family:'Space Grotesk',sans-serif;font-size:0.8rem;padding:9px;width:100%;cursor:pointer;margin-top:3px;transition:all 0.15s;}
+.proto-add-btn:hover{border-color:var(--accent);color:var(--accent);}
+.proto-phase.active-phase{border-color:var(--accent2);background:rgba(79,255,176,0.05);}
+.proto-phase.active-phase .proto-phase-num{color:var(--accent2);font-weight:700;}
+.proto-summary{background:rgba(79,255,176,0.06);border:1px solid rgba(79,255,176,0.15);border-radius:9px;padding:13px;margin-top:3px;}
+.proto-summary-row{display:flex;justify-content:space-between;font-size:0.8rem;padding:3px 0;}
+.proto-summary-row .k{color:var(--muted);}
+.proto-summary-row .v{font-family:'Space Mono',monospace;color:var(--accent2);font-weight:600;}
+.active-proto-item{background:var(--surface2);border-radius:9px;padding:11px 13px;display:flex;justify-content:space-between;align-items:center;border-left:3px solid var(--accent);margin-bottom:8px;}
+/* CALENDAR */
+.cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.cal-nav button{background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.95rem;width:32px;height:32px;cursor:pointer;}
+.cal-nav button:hover{border-color:var(--accent);}
+.cal-month{font-family:'Space Mono',monospace;font-size:0.82rem;color:var(--accent2);letter-spacing:1px;text-transform:uppercase;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;}
+.cal-dow{text-align:center;font-family:'Space Mono',monospace;font-size:0.55rem;color:var(--muted);padding:2px 0 6px;letter-spacing:0.5px;}
+.cal-day{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:6px;font-size:0.78rem;font-weight:500;cursor:pointer;border:1px solid transparent;transition:all 0.12s;position:relative;background:var(--surface2);}
+.cal-day:hover{border-color:var(--accent);}
+.cal-day.empty{background:transparent;border-color:transparent;cursor:default;}
+.cal-day.today{border-color:var(--accent2);color:var(--accent2);}
+.cal-day.selected{background:var(--accent);color:#fff;border-color:var(--accent);}
+.cal-day.past-day{opacity:0.42;}
+.cal-day.has-note::after{content:'';display:block;width:4px;height:4px;border-radius:50%;background:var(--warn);position:absolute;top:3px;right:3px;}
+.dose-dots{display:flex;gap:2px;position:absolute;bottom:3px;left:50%;transform:translateX(-50%);}
+.dose-dot{width:4px;height:4px;border-radius:50%;}
+.cal-tooltip{position:fixed;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px;font-size:0.76rem;max-width:210px;z-index:1000;pointer-events:none;opacity:0;transition:opacity 0.15s;box-shadow:0 8px 24px rgba(0,0,0,0.5);}
+.cal-tooltip.visible{opacity:1;}
+.cal-tooltip-title{font-family:'Space Mono',monospace;font-size:0.6rem;color:var(--muted);margin-bottom:7px;letter-spacing:0.8px;}
+.cal-tooltip-item{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:0.76rem;}
+.cal-tooltip-item .dose{font-family:'Space Mono',monospace;font-weight:700;margin-left:auto;padding-left:7px;}
+.cal-legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:11px;}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:0.72rem;color:var(--muted);}
+.day-detail{background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:14px;margin-top:12px;display:none;}
+.day-detail.visible{display:block;}
+.day-detail-header{font-family:'Space Mono',monospace;font-size:0.68rem;color:var(--accent);letter-spacing:1.5px;margin-bottom:11px;}
+.task-item{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);}
+.task-item:last-child{border-bottom:none;}
+.task-name{font-weight:600;font-size:0.84rem;}
+.task-sub{font-size:0.71rem;color:var(--muted);margin-top:2px;}
+.no-dose-msg{text-align:center;color:var(--muted);font-size:0.8rem;padding:12px 0;}
+.note-area{margin-top:12px;border-top:1px solid var(--border);padding-top:12px;}
+.note-label{font-family:'Space Mono',monospace;font-size:0.6rem;color:var(--muted);letter-spacing:1px;margin-bottom:6px;}
+.note-textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Space Grotesk',sans-serif;font-size:0.82rem;padding:9px 11px;resize:vertical;min-height:68px;outline:none;line-height:1.5;}
+.note-textarea:focus{border-color:var(--accent);}
+.note-textarea::placeholder{color:var(--muted);}
+.note-save-row{display:flex;justify-content:space-between;align-items:center;margin-top:6px;}
+.note-saved-indicator{font-size:0.7rem;color:var(--accent2);opacity:0;transition:opacity 0.3s;}
+.note-saved-indicator.show{opacity:1;}
+/* PEPCALC */
+.syringe-options{display:flex;flex-direction:column;gap:10px;margin-bottom:14px;}
+.syringe-opt{display:flex;align-items:center;gap:12px;background:var(--surface2);border:2px solid var(--border);border-radius:10px;padding:10px 14px;cursor:pointer;transition:all 0.15s;}
+.syringe-opt.selected{border-color:var(--accent);}
+.syringe-opt .ml-label{font-family:'Space Mono',monospace;font-weight:700;font-size:0.88rem;min-width:42px;color:var(--text);}
+.syringe-svg{flex:1;height:36px;}
+.option-pills{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:4px;}
+.pill{background:var(--surface2);border:1px solid var(--border);border-radius:20px;color:var(--muted);font-family:'Space Grotesk',sans-serif;font-size:0.78rem;font-weight:500;padding:5px 13px;cursor:pointer;transition:all 0.15s;}
+.pill.selected{background:var(--accent);border-color:var(--accent);color:#fff;}
+.other-input{display:none;margin-top:7px;}
+.other-input.show{display:block;}
+.syringe-result-box{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-top:14px;}
+.syringe-result-text{font-size:1rem;color:var(--text);margin-bottom:20px;line-height:1.6;}
+.syringe-result-text strong{color:var(--accent2);font-family:'Space Mono',monospace;font-size:1.15rem;}
+.syringe-visual-wrap{width:100%;overflow-x:auto;}
+.syringe-visual-wrap svg{display:block;width:100%;min-width:300px;}
+.save-pepcalc-btn{margin-top:12px;}
+/* PEPCALC HISTORY */
+.pepcalc-hist-item{background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:11px 13px;margin-bottom:8px;}
+.pepcalc-hist-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+.pepcalc-hist-date{font-family:'Space Mono',monospace;font-size:0.62rem;color:var(--muted);}
+.pepcalc-hist-pep{font-weight:600;font-size:0.84rem;color:var(--accent2);}
+.pepcalc-hist-detail{font-size:0.75rem;color:var(--muted);line-height:1.6;}
+/* PROGRESO */
+.progress-form .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;}
+.weight-chart{height:120px;position:relative;margin:12px 0;}
+.weight-chart canvas{width:100%;height:100%;}
+.photo-upload-area{border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;cursor:pointer;transition:border-color 0.15s;margin-bottom:10px;}
+.photo-upload-area:hover{border-color:var(--accent);}
+.photo-upload-area input{display:none;}
+.photo-upload-label{font-size:0.8rem;color:var(--muted);}
+.photo-upload-label strong{color:var(--accent);}
+.photos-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px;}
+.photo-thumb{border-radius:8px;overflow:hidden;aspect-ratio:1;position:relative;cursor:pointer;}
+.photo-thumb img{width:100%;height:100%;object-fit:cover;}
+.photo-thumb .photo-date{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);font-size:0.6rem;color:#fff;padding:3px 5px;font-family:'Space Mono',monospace;}
+.progress-log-list{display:flex;flex-direction:column;gap:7px;margin-top:4px;}
+.progress-log-item{background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:11px 13px;}
+.plog-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;}
+.plog-date{font-family:'Space Mono',monospace;font-size:0.63rem;color:var(--muted);}
+.plog-weight{font-family:'Space Mono',monospace;font-size:1rem;font-weight:700;color:var(--accent2);}
+.plog-note{font-size:0.75rem;color:var(--muted);margin-top:3px;}
+.plog-photos{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap;}
+.plog-photo{width:56px;height:56px;border-radius:6px;object-fit:cover;cursor:pointer;}
+/* lightbox */
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:2000;display:none;align-items:center;justify-content:center;}
+.lightbox.show{display:flex;}
+.lightbox img{max-width:92vw;max-height:88vh;border-radius:10px;}
+.lightbox-close{position:absolute;top:16px;right:20px;color:#fff;font-size:1.8rem;cursor:pointer;background:none;border:none;}
+</style>
+</head>
+<body>
+
+<!-- AUTH -->
+<div id="auth-screen">
+  <div class="auth-logo">
+    <h1>// PEPTIDE CALC</h1>
+    <p>Accede para sincronizar tus datos</p>
+  </div>
+  <div class="auth-card">
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchAuthTab('login',this)">Entrar</button>
+      <button class="auth-tab" onclick="switchAuthTab('register',this)">Registrarse</button>
+    </div>
+    <div id="auth-msg" class="auth-msg error"></div>
+    <div class="field"><label>Email</label><input type="email" id="auth-email" placeholder="tu@email.com"></div>
+    <div class="field"><label>Contrasena</label><input type="password" id="auth-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')authSubmit()"></div>
+    <button class="btn" id="auth-btn" onclick="authSubmit()">Entrar</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app-screen">
+  <header>
+    <h1>// PEPTIDE CALC <span class="sync-dot" id="sync-dot"></span></h1>
+    <p>RECONST · DOSIS · ESCALADA · PROTOCOLO · CALENDARIO · PEPCALC · PROGRESO</p>
+    <div class="user-bar">
+      <span class="user-email" id="user-email-display"></span>
+      <button class="logout-btn" onclick="doLogout()">Salir</button>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('reconst',this)">Reconst.</button>
+    <button class="tab" onclick="showTab('dosis',this)">Dosis</button>
+    <button class="tab" onclick="showTab('escalada',this)">Escalada</button>
+    <button class="tab" onclick="showTab('protocolo',this)">Protocolo</button>
+    <button class="tab" onclick="showTab('calendario',this)">Calendario</button>
+    <button class="tab" onclick="showTab('pepcalc',this)">PepCalc</button>
+    <button class="tab" onclick="showTab('progreso',this)">Progreso</button>
+  </div>
+
+  <!-- TAB 1: RECONST -->
+  <div class="panel active" id="panel-reconst">
+    <div class="card">
+      <div class="card-title">// Peptido</div>
+      <div class="peptido-card">
+        <button class="peptido-btn selected" onclick="selectPeptido(this,'retatrutide')">Retatrutide</button>
+        <button class="peptido-btn" onclick="selectPeptido(this,'ghkcu')">GHK-Cu</button>
+        <button class="peptido-btn" onclick="selectPeptido(this,'mt2')">Melanotan 2</button>
+        <button class="peptido-btn" onclick="selectPeptido(this,'custom')">Personalizado</button>
+      </div>
+      <div class="card-title">// Vial</div>
+      <div class="row">
+        <div class="field"><label>Cantidad vial (mg)</label><input type="number" id="vial-mg" value="10" min="0.1" step="0.1"></div>
+        <div class="field"><label>Agua bact. (ml)</label><input type="number" id="bac-water" value="2" min="0.1" step="0.1"></div>
+      </div>
+      <button class="btn" onclick="calcReconst()">Calcular</button>
+      <div class="result-box" id="result-reconst" style="display:none">
+        <div class="result-row"><span class="key">Concentracion</span><span class="val" id="conc-result">-</span></div>
+        <div class="result-row"><span class="key">mcg por unidad insulin</span><span class="val" id="per-unit">-</span></div>
+        <div class="result-row"><span class="key">Usos estimados</span><span class="val" id="total-uses">-</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: DOSIS -->
+  <div class="panel" id="panel-dosis">
+    <div class="card">
+      <div class="row">
+        <div class="field"><label>Concentracion (mg/ml)</label><input type="number" id="d-conc" value="5" min="0.1" step="0.1"></div>
+        <div class="field"><label>Jeringa</label><select id="d-syringe"><option value="100">100U (1ml)</option><option value="50">50U (0.5ml)</option><option value="30">30U (0.3ml)</option></select></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Dosis (mg)</label><input type="number" id="d-dose-mg" value="1" min="0.01" step="0.01"></div>
+        <div class="field"><label>Frecuencia</label><select id="d-freq"><option value="7">Semanal</option><option value="1">Diaria</option><option value="2">Cada 2 dias</option><option value="3">Cada 3 dias</option></select></div>
+      </div>
+      <button class="btn" onclick="calcDosis()">Calcular</button>
+      <div class="result-box" id="result-dosis" style="display:none">
+        <div class="result-row"><span class="key">Unidades a pinchar</span><span class="val" id="r-units">-</span></div>
+        <div class="result-row"><span class="key">Volumen</span><span class="val" id="r-vol">-</span></div>
+        <div class="result-row"><span class="key">Dosis semanal total</span><span class="val" id="r-weekly">-</span></div>
+      </div>
+      <div class="tip"><strong>Truco:</strong> 100U=1ml. Con 5mg/ml → 1mg=20U.</div>
+    </div>
+  </div>
+
+  <!-- TAB 3: ESCALADA -->
+  <div class="panel" id="panel-escalada">
+    <div class="card">
+      <div class="field"><label>Peptido</label>
+        <select id="e-peptido" onchange="updateEscalada()">
+          <option value="retatrutide-conservador">Retatrutide - Conservador</option>
+          <option value="retatrutide-estandar">Retatrutide - Estandar</option>
+          <option value="ghkcu">GHK-Cu</option><option value="mt2">Melanotan 2</option>
+        </select>
+      </div>
+      <div class="field"><label>Semana actual</label><input type="number" id="e-week" value="1" min="1" max="30" onchange="updateEscalada()"></div>
+    </div>
+    <div class="card">
+      <table class="esc-table"><thead><tr><th>SEMANA</th><th>DOSIS</th><th>NOTAS</th></tr></thead><tbody id="esc-tbody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- TAB 4: PROTOCOLO -->
+  <div class="panel" id="panel-protocolo">
+    <div class="card">
+      <div class="card-title">// Selecciona peptido</div>
+      <div class="proto-peptide-tabs">
+        <button class="proto-ptab active" data-p="retatrutide" onclick="switchProtoPeptide('retatrutide',this)"><span class="chip" style="background:var(--c-ret)"></span>Retatrutide</button>
+        <button class="proto-ptab" data-p="ghkcu" onclick="switchProtoPeptide('ghkcu',this)"><span class="chip" style="background:var(--c-ghk)"></span>GHK-Cu</button>
+        <button class="proto-ptab" data-p="mt2" onclick="switchProtoPeptide('mt2',this)"><span class="chip" style="background:var(--c-mt2)"></span>MT2</button>
+        <button class="proto-ptab" data-p="custom" onclick="switchProtoPeptide('custom',this)"><span class="chip" style="background:var(--c-custom)"></span>Custom</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title" id="proto-config-title">// Retatrutide</div>
+      <div class="row" style="margin-bottom:11px">
+        <div class="field"><label>Fecha inicio</label><input type="date" id="proto-start"></div>
+        <div class="field"><label>Frecuencia</label><select id="proto-freq"><option value="7">Semanal</option><option value="1">Diaria</option><option value="2">Cada 2 dias</option><option value="3">Cada 3 dias</option></select></div>
+      </div>
+      <div class="card-title">// Fases</div>
+      <div class="proto-header"><span></span><span>SEMANAS</span><span>DOSIS (mg)</span><span>NOTA</span><span></span></div>
+      <div id="proto-phases"></div>
+      <button class="proto-add-btn" onclick="addPhase()">+ Anadir fase</button>
+    </div>
+    <div class="card" id="proto-summary-card" style="display:none">
+      <div class="card-title">// Resumen</div>
+      <div class="proto-summary" id="proto-summary"></div>
+    </div>
+    <button class="btn ghost" onclick="calcProtoSummary()" style="margin-bottom:8px">Ver resumen</button>
+    <button class="btn green" onclick="applyProto()">Guardar y aplicar al Calendario</button>
+    <div class="card" style="margin-top:12px">
+      <div class="card-title">// Protocolos activos</div>
+      <div id="active-proto-list"></div>
+    </div>
+  </div>
+
+  <!-- TAB 5: CALENDARIO -->
+  <div class="panel" id="panel-calendario">
+    <div class="card">
+      <div class="cal-legend" id="cal-legend"></div>
+      <div class="cal-nav">
+        <button onclick="changeMonth(-1)">&#8592;</button>
+        <span class="cal-month" id="cal-month-label">-</span>
+        <button onclick="changeMonth(1)">&#8594;</button>
+      </div>
+      <div class="cal-grid" id="cal-grid"></div>
+    </div>
+    <div class="day-detail" id="day-detail">
+      <div class="day-detail-header" id="day-detail-title">// HOY</div>
+      <div id="day-detail-body"></div>
+      <div class="note-area">
+        <div class="note-label">NOTA DEL DIA</div>
+        <textarea class="note-textarea" id="day-note" placeholder="Peso, sintomas, como te sentiste..."></textarea>
+        <div class="note-save-row">
+          <span class="note-saved-indicator" id="note-saved-msg">Guardado</span>
+          <button class="btn sm" onclick="saveNote()">Guardar nota</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 6: PEPCALC -->
+  <div class="panel" id="panel-pepcalc">
+    <div class="card">
+      <div class="card-title">// Nombre del peptido</div>
+      <div class="field"><input type="text" id="pc-pep-name" placeholder="ej: Retatrutide, GHK-Cu..."></div>
+
+      <div class="card-title">// Tipo de jeringa</div>
+      <div class="syringe-options" id="pc-syringe-opts">
+        <div class="syringe-opt selected" data-ml="0.3" onclick="selectSyringe(this,0.3,30)">
+          <span class="ml-label">0.3 ml</span>
+          <svg class="syringe-svg" viewBox="0 0 200 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="10" y="12" width="150" height="12" rx="3" fill="#e8401a" opacity="0.85"/>
+            <rect x="10" y="14" width="80" height="8" rx="2" fill="#ff6b35"/>
+            <rect x="160" y="8" width="22" height="20" rx="4" fill="#c9c9c9"/>
+            <rect x="182" y="16" width="12" height="4" rx="1" fill="#999"/>
+            <rect x="4" y="10" width="8" height="16" rx="2" fill="#c9c9c9"/>
+            <line x1="10" y1="18" x2="160" y2="18" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+            <line x1="40" y1="12" x2="40" y2="24" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+            <line x1="70" y1="12" x2="70" y2="24" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+            <line x1="100" y1="12" x2="100" y2="24" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+            <line x1="130" y1="12" x2="130" y2="24" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+            <text x="40" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">10</text>
+            <text x="70" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">20</text>
+            <text x="100" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">30</text>
+          </svg>
+        </div>
+        <div class="syringe-opt" data-ml="0.5" onclick="selectSyringe(this,0.5,50)">
+          <span class="ml-label">0.5 ml</span>
+          <svg class="syringe-svg" viewBox="0 0 200 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="10" y="12" width="150" height="12" rx="3" fill="#e8401a" opacity="0.85"/>
+            <rect x="10" y="14" width="50" height="8" rx="2" fill="#ff6b35"/>
+            <rect x="160" y="8" width="22" height="20" rx="4" fill="#c9c9c9"/>
+            <rect x="182" y="16" width="12" height="4" rx="1" fill="#999"/>
+            <rect x="4" y="10" width="8" height="16" rx="2" fill="#c9c9c9"/>
+            <line x1="10" y1="18" x2="160" y2="18" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+            <line x1="33" y1="12" x2="33" y2="24" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+            <line x1="56" y1="12" x2="56" y2="24" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+            <line x1="79" y1="12" x2="79" y2="24" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+            <line x1="102" y1="12" x2="102" y2="24" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+            <line x1="125" y1="12" x2="125" y2="24" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+            <line x1="148" y1="12" x2="148" y2="24" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
+            <text x="33" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">10</text>
+            <text x="56" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">20</text>
+            <text x="79" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">30</text>
+            <text x="102" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">40</text>
+            <text x="125" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">50</text>
+          </svg>
+        </div>
+        <div class="syringe-opt" data-ml="1.0" onclick="selectSyringe(this,1.0,100)">
+          <span class="ml-label">1.0 ml</span>
+          <svg class="syringe-svg" viewBox="0 0 200 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="10" y="12" width="150" height="12" rx="3" fill="#e8401a" opacity="0.85"/>
+            <rect x="10" y="14" width="30" height="8" rx="2" fill="#ff6b35"/>
+            <rect x="160" y="8" width="22" height="20" rx="4" fill="#c9c9c9"/>
+            <rect x="182" y="16" width="12" height="4" rx="1" fill="#999"/>
+            <rect x="4" y="10" width="8" height="16" rx="2" fill="#c9c9c9"/>
+            <line x1="10" y1="18" x2="160" y2="18" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+            <line x1="25" y1="12" x2="25" y2="24" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+            <line x1="40" y1="12" x2="40" y2="24" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+            <line x1="55" y1="12" x2="55" y2="24" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+            <line x1="70" y1="12" x2="70" y2="24" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+            <line x1="85" y1="12" x2="85" y2="24" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+            <line x1="100" y1="12" x2="100" y2="24" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+            <line x1="115" y1="12" x2="115" y2="24" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+            <line x1="130" y1="12" x2="130" y2="24" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+            <line x1="145" y1="12" x2="145" y2="24" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+            <text x="40" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">20</text>
+            <text x="70" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">40</text>
+            <text x="100" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">60</text>
+            <text x="130" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">80</text>
+            <text x="155" y="32" font-size="7" fill="#aaa" text-anchor="middle" font-family="monospace">100</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="card-title">// Cantidad del vial</div>
+      <div class="option-pills" id="pc-vial-pills">
+        <div class="pill selected" data-val="5" onclick="selectPill(this,'pc-vial-pills','pc-vial-other','pc-vial')">5 mg</div>
+        <div class="pill" data-val="10" onclick="selectPill(this,'pc-vial-pills','pc-vial-other','pc-vial')">10 mg</div>
+        <div class="pill" data-val="15" onclick="selectPill(this,'pc-vial-pills','pc-vial-other','pc-vial')">15 mg</div>
+        <div class="pill" data-val="other" onclick="selectPill(this,'pc-vial-pills','pc-vial-other','pc-vial')">Other</div>
+      </div>
+      <div class="other-input" id="pc-vial-other"><input type="number" id="pc-vial-custom" placeholder="mg" oninput="pcVialVal=parseFloat(this.value);calcPepCalc()"></div>
+      <input type="hidden" id="pc-vial" value="5">
+
+      <div class="card-title" style="margin-top:12px">// Agua bacteriostatica</div>
+      <div class="option-pills" id="pc-water-pills">
+        <div class="pill selected" data-val="1" onclick="selectPill(this,'pc-water-pills','pc-water-other','pc-water')">1 ml</div>
+        <div class="pill" data-val="2" onclick="selectPill(this,'pc-water-pills','pc-water-other','pc-water')">2 ml</div>
+        <div class="pill" data-val="3" onclick="selectPill(this,'pc-water-pills','pc-water-other','pc-water')">3 ml</div>
+        <div class="pill" data-val="5" onclick="selectPill(this,'pc-water-pills','pc-water-other','pc-water')">5 ml</div>
+        <div class="pill" data-val="other" onclick="selectPill(this,'pc-water-pills','pc-water-other','pc-water')">Other</div>
+      </div>
+      <div class="other-input" id="pc-water-other"><input type="number" id="pc-water-custom" placeholder="ml" oninput="pcWaterVal=parseFloat(this.value);calcPepCalc()"></div>
+      <input type="hidden" id="pc-water" value="1">
+
+      <div class="card-title" style="margin-top:12px">// Dosis deseada</div>
+      <div class="option-pills" id="pc-dose-pills">
+        <div class="pill selected" data-val="50" onclick="selectPill(this,'pc-dose-pills','pc-dose-other','pc-dose')">50 mcg</div>
+        <div class="pill" data-val="100" onclick="selectPill(this,'pc-dose-pills','pc-dose-other','pc-dose')">100 mcg</div>
+        <div class="pill" data-val="250" onclick="selectPill(this,'pc-dose-pills','pc-dose-other','pc-dose')">250 mcg</div>
+        <div class="pill" data-val="500" onclick="selectPill(this,'pc-dose-pills','pc-dose-other','pc-dose')">500 mcg</div>
+        <div class="pill" data-val="other" onclick="selectPill(this,'pc-dose-pills','pc-dose-other','pc-dose')">Other</div>
+      </div>
+      <div class="other-input" id="pc-dose-other"><input type="number" id="pc-dose-custom" placeholder="mcg" oninput="pcDoseVal=parseFloat(this.value);calcPepCalc()"></div>
+      <input type="hidden" id="pc-dose" value="50">
+
+      <div class="syringe-result-box" id="pc-result" style="display:none">
+        <div class="syringe-result-text" id="pc-result-text"></div>
+        <div class="syringe-visual-wrap">
+          <svg id="pc-syringe-svg" viewBox="0 0 560 110" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <div class="field" style="margin-top:14px"><label>Nota (opcional)</label><input type="text" id="pc-note" placeholder="ej: Semana 3 de retatrutide, subiendo dosis..."></div>
+        <button class="btn save-pepcalc-btn" onclick="savePepCalc()">Guardar en historial</button>
+      </div>
+    </div>
+
+    <!-- Historial -->
+    <div class="card">
+      <div class="card-title">// Historial guardado</div>
+      <div id="pepcalc-history-list"><div style="color:var(--muted);font-size:0.8rem">Cargando...</div></div>
+    </div>
+  </div>
+
+  <!-- TAB 7: PROGRESO -->
+  <div class="panel" id="panel-progreso">
+    <div class="card">
+      <div class="card-title">// Registrar entrada</div>
+      <div class="row">
+        <div class="field"><label>Fecha</label><input type="date" id="prog-date"></div>
+        <div class="field"><label>Peso (kg)</label><input type="number" id="prog-weight" step="0.1" placeholder="70.5"></div>
+      </div>
+      <div class="field"><label>Nota</label><textarea id="prog-note" placeholder="Como te encuentras, cambios notados..." style="min-height:58px"></textarea></div>
+      <div class="photo-upload-area" onclick="document.getElementById('prog-photo-input').click()">
+        <input type="file" id="prog-photo-input" accept="image/*" multiple onchange="handlePhotoSelect(event)">
+        <div class="photo-upload-label">📷 <strong>Toca para subir fotos</strong><br>Max 2 fotos por entrada</div>
+      </div>
+      <div id="prog-photo-preview" class="photos-grid" style="display:none"></div>
+      <button class="btn green" onclick="saveProgressEntry()">Guardar entrada</button>
+    </div>
+
+    <!-- Chart -->
+    <div class="card" id="prog-chart-card" style="display:none">
+      <div class="card-title">// Evolucion del peso</div>
+      <canvas id="weight-canvas" height="120"></canvas>
+    </div>
+
+    <!-- Log list -->
+    <div class="card">
+      <div class="card-title">// Historial de progreso</div>
+      <div class="progress-log-list" id="progress-log-list"><div style="color:var(--muted);font-size:0.8rem">Cargando...</div></div>
+    </div>
+  </div>
+
+  <p class="disclaimer">Solo para fines informativos · No es consejo medico</p>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">&#x2715;</button>
+  <img id="lightbox-img" src="">
+</div>
+
+<!-- Tooltip -->
+<div class="cal-tooltip" id="cal-tooltip">
+  <div class="cal-tooltip-title" id="tt-title"></div>
+  <div id="tt-body"></div>
+</div>
+
+<script>
+// ── SUPABASE ──────────────────────────────────────
+const SUPA_URL='https://nhkgwfqitizwrfmsdhpg.supabase.co';
+const SUPA_KEY='sb_publishable_DLh1-Sn2qqMtZnuCJYtvWA_lehkaQax';
+const sb=supabase.createClient(SUPA_URL,SUPA_KEY);
+let currentUser=null,notesCache={},activeProtocols={},currentProtoPeptide='retatrutide';
+const PEPTIDE_COLORS={retatrutide:'#7c6aff',ghkcu:'#4fffb0',mt2:'#ff9f43',custom:'#ff6b9d'};
+const PEPTIDE_NAMES={retatrutide:'Retatrutide',ghkcu:'GHK-Cu',mt2:'Melanotan 2',custom:'Custom'};
+const PEPTIDE_ZONES={retatrutide:'abdomen o muslo',ghkcu:'abdomen',mt2:'abdomen',custom:'subcut'};
+let protoPhasesByPeptide={
+  retatrutide:[{weeks:4,dose:0.5,note:'Adaptacion'},{weeks:4,dose:1,note:''},{weeks:4,dose:2,note:''}],
+  ghkcu:[{weeks:2,dose:0.5,note:'Inicio'},{weeks:8,dose:1,note:'Estandar'}],
+  mt2:[{weeks:1,dose:0.25,note:'Test'},{weeks:4,dose:0.5,note:'Carga'},{weeks:4,dose:0.25,note:'Mant.'}],
+  custom:[{weeks:4,dose:1,note:''}],
+};
+
+// ── AUTH ──────────────────────────────────────────
+let authMode='login';
+function switchAuthTab(m,el){authMode=m;document.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');document.getElementById('auth-btn').textContent=m==='login'?'Entrar':'Crear cuenta';document.getElementById('auth-msg').classList.remove('show');}
+function showAuthMsg(txt,type){const e=document.getElementById('auth-msg');e.textContent=txt;e.className='auth-msg show '+type;}
+async function authSubmit(){
+  const email=document.getElementById('auth-email').value.trim(),pass=document.getElementById('auth-pass').value;
+  if(!email||!pass){showAuthMsg('Rellena email y contrasena','error');return;}
+  document.getElementById('auth-btn').textContent='...';
+  if(authMode==='login'){const{error}=await sb.auth.signInWithPassword({email,password:pass});if(error){showAuthMsg(error.message,'error');document.getElementById('auth-btn').textContent='Entrar';}}
+  else{const{error}=await sb.auth.signUp({email,password:pass});if(error){showAuthMsg(error.message,'error');}else{showAuthMsg('Cuenta creada! Revisa tu email.','success');}document.getElementById('auth-btn').textContent='Crear cuenta';}
+}
+async function doLogout(){await sb.auth.signOut();currentUser=null;notesCache={};activeProtocols={};document.getElementById('app-screen').style.display='none';document.getElementById('auth-screen').style.display='block';}
+sb.auth.onAuthStateChange(async(ev,session)=>{
+  if(session?.user){currentUser=session.user;document.getElementById('auth-screen').style.display='none';document.getElementById('app-screen').style.display='block';document.getElementById('user-email-display').textContent=currentUser.email;await loadAllData();}
+});
+
+// ── SYNC ─────────────────────────────────────────
+function setSyncing(){document.getElementById('sync-dot').className='sync-dot syncing';}
+function setSynced(){document.getElementById('sync-dot').className='sync-dot';}
+function setSyncErr(){document.getElementById('sync-dot').className='sync-dot error';}
+
+// ── LOAD ─────────────────────────────────────────
+async function loadAllData(){
+  setSyncing();
+  try{
+    const[notesR,protoR]=await Promise.all([
+      sb.from('cal_notes').select('date_key,note').eq('user_id',currentUser.id),
+      sb.from('user_protocol').select('protocol_data').eq('user_id',currentUser.id).maybeSingle()
+    ]);
+    notesCache={};
+    if(notesR.data)notesR.data.forEach(n=>{notesCache[n.date_key]=n.note;});
+    if(protoR.data?.protocol_data){
+      activeProtocols=protoR.data.protocol_data;
+      Object.keys(activeProtocols).forEach(p=>{if(activeProtocols[p]?.phases)protoPhasesByPeptide[p]=activeProtocols[p].phases.map(x=>({...x}));});
+    }
+    setSynced();
+  }catch(e){setSyncErr();}
+  const ti=toDateKey(new Date());
+  document.getElementById('proto-start').value=ti;
+  document.getElementById('prog-date').value=ti;
+  updateEscalada();
+  renderProtoPhases();
+  renderActiveProtoList();
+  renderCalendar();
+  calcPepCalc();
+  await loadPepCalcHistory();
+  await loadProgressLog();
+}
+
+// ── TABS ─────────────────────────────────────────
+function showTab(t,el){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.getElementById('panel-'+t).classList.add('active');el.classList.add('active');}
+
+// ── TAB 1 ────────────────────────────────────────
+let selectedPeptido='retatrutide';
+function selectPeptido(el,p){document.querySelectorAll('.peptido-btn').forEach(b=>b.classList.remove('selected'));el.classList.add('selected');selectedPeptido=p;const d={retatrutide:{mg:10,water:2},ghkcu:{mg:50,water:5},mt2:{mg:10,water:2},custom:{mg:10,water:2}}[p];document.getElementById('vial-mg').value=d.mg;document.getElementById('bac-water').value=d.water;}
+function calcReconst(){const mg=parseFloat(document.getElementById('vial-mg').value),ml=parseFloat(document.getElementById('bac-water').value);if(!mg||!ml)return;const c=mg/ml;document.getElementById('conc-result').textContent=c.toFixed(2)+' mg/ml';document.getElementById('per-unit').textContent=(c*10).toFixed(0)+' mcg';const t={retatrutide:1,ghkcu:0.001,mt2:0.5,custom:1};document.getElementById('total-uses').textContent='~'+Math.floor(mg/(t[selectedPeptido]||1))+' dosis';document.getElementById('result-reconst').style.display='block';}
+
+// ── TAB 2 ────────────────────────────────────────
+function calcDosis(){const c=parseFloat(document.getElementById('d-conc').value),dm=parseFloat(document.getElementById('d-dose-mg').value),sy=parseInt(document.getElementById('d-syringe').value),fr=parseInt(document.getElementById('d-freq').value);if(!c||!dm)return;const v=dm/c,u=v*sy,w=fr===7?dm:dm*7/fr;document.getElementById('r-units').textContent=u.toFixed(1)+'U';document.getElementById('r-vol').textContent=v.toFixed(3)+' ml';document.getElementById('r-weekly').textContent=w.toFixed(2)+' mg/sem';document.getElementById('result-dosis').style.display='block';}
+
+// ── TAB 3 ────────────────────────────────────────
+const PROTOCOLS={'retatrutide-conservador':[{weeks:[1,2,3,4],dose:'0.5mg/sem',notes:'Adaptacion'},{weeks:[5,6,7,8],dose:'1mg/sem',notes:'Primera escalada'},{weeks:[9,10,11,12],dose:'2mg/sem',notes:'Apetito baja'},{weeks:[13,14,15,16],dose:'4mg/sem',notes:'Perdida activa'},{weeks:[17,18,19,20],dose:'6mg/sem',notes:'Mantenimiento'},{weeks:[21,22,23,24],dose:'8mg/sem',notes:'Tope'}],'retatrutide-estandar':[{weeks:[1,2,3,4],dose:'2mg/sem',notes:'Inicio NEJM'},{weeks:[5,6,7,8],dose:'4mg/sem',notes:'-17% a 48sem'},{weeks:[9,10,11,12],dose:'6mg/sem',notes:''},{weeks:[13,14,15,16],dose:'8mg/sem',notes:'-22%'},{weeks:[17,18,19,20],dose:'10mg/sem',notes:''},{weeks:[21,22,23,24],dose:'12mg/sem',notes:'-24%'}],'ghkcu':[{weeks:[1,2],dose:'500mcg/dia',notes:'Inicio'},{weeks:[3,4,5,6],dose:'1mg/dia',notes:'Estandar'},{weeks:[7,8,9,10],dose:'1-2mg/dia',notes:'Segun tolerancia'},{weeks:[11,12],dose:'Descanso',notes:'Fin ciclo'}],'mt2':[{weeks:[1],dose:'0.25mg',notes:'Test'},{weeks:[2,3,4],dose:'0.5mg/dia',notes:'Carga'},{weeks:[5,6,7,8],dose:'0.25-0.5mg',notes:'Mant.'}]};
+function updateEscalada(){const pr=document.getElementById('e-peptido').value,cw=parseInt(document.getElementById('e-week').value)||1,sc=PROTOCOLS[pr],tb=document.getElementById('esc-tbody');tb.innerHTML='';sc.forEach(ph=>{const ic=ph.weeks.includes(cw),wl=ph.weeks.length===1?`Sem ${ph.weeks[0]}`:`Sem ${ph.weeks[0]}-${ph.weeks[ph.weeks.length-1]}`;const tr=document.createElement('tr');if(ic)tr.classList.add('current-week');tr.innerHTML=`<td>${wl} ${ic?'<span class="badge now">AHORA</span>':''}</td><td class="dose-val">${ph.dose}</td><td style="color:var(--muted);font-size:0.71rem">${ph.notes}</td>`;tb.appendChild(tr);});}
+
+// ── TAB 4 ────────────────────────────────────────
+function switchProtoPeptide(p,el){currentProtoPeptide=p;document.querySelectorAll('.proto-ptab').forEach(t=>t.classList.remove('active'));el.classList.add('active');document.getElementById('proto-config-title').textContent=`// ${PEPTIDE_NAMES[p]}`;const ap=activeProtocols[p];if(ap){document.getElementById('proto-start').value=ap.startDate||toDateKey(new Date());document.getElementById('proto-freq').value=ap.freq||7;}renderProtoPhases();}
+function renderProtoPhases(){const phases=protoPhasesByPeptide[currentProtoPeptide]||[],container=document.getElementById('proto-phases');container.innerHTML='';const sv=document.getElementById('proto-start').value;let ai=-1;if(sv){const sd=fromDateKey(sv),diff=Math.floor((new Date()-sd)/86400000);if(diff>=0){const wn=Math.floor(diff/7)+1;let cum=0;for(let i=0;i<phases.length;i++){cum+=phases[i].weeks;if(wn<=cum){ai=i;break;}}}}phases.forEach((ph,idx)=>{const div=document.createElement('div');div.className='proto-phase'+(idx===ai?' active-phase':'');div.innerHTML=`<div class="proto-phase-num">${idx===ai?'▶':(idx+1)}</div><div class="proto-phase-inputs"><input type="number" min="1" max="52" value="${ph.weeks}" placeholder="sem" oninput="protoPhasesByPeptide['${currentProtoPeptide}'][${idx}].weeks=parseInt(this.value)||1"><input type="number" min="0" step="0.25" value="${ph.dose}" placeholder="mg" oninput="protoPhasesByPeptide['${currentProtoPeptide}'][${idx}].dose=parseFloat(this.value)||0"><input type="text" value="${ph.note}" placeholder="nota" oninput="protoPhasesByPeptide['${currentProtoPeptide}'][${idx}].note=this.value"></div><button class="proto-delete" onclick="removePhase(${idx})">x</button>`;container.appendChild(div);});}
+function addPhase(){const ph=protoPhasesByPeptide[currentProtoPeptide];const last=ph.length?ph[ph.length-1].dose:0;ph.push({weeks:4,dose:+(last+0.5).toFixed(2),note:''});renderProtoPhases();}
+function removePhase(idx){const ph=protoPhasesByPeptide[currentProtoPeptide];if(ph.length<=1)return;ph.splice(idx,1);renderProtoPhases();}
+function calcProtoSummary(){const p=currentProtoPeptide,ph=protoPhasesByPeptide[p];document.getElementById('proto-summary-card').style.display='block';const tw=ph.reduce((s,x)=>s+(parseInt(x.weeks)||0),0);const sv=document.getElementById('proto-start').value;let eds='-';if(sv){const ed=fromDateKey(sv);ed.setDate(ed.getDate()+tw*7);eds=ed.toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'});}document.getElementById('proto-summary').innerHTML=ph.map((x,i)=>{const wf=ph.slice(0,i).reduce((s,y)=>s+(parseInt(y.weeks)||0),0)+1,wt=wf+(parseInt(x.weeks)||1)-1;return`<div class="proto-summary-row"><span class="k">Sem ${wf}-${wt} ${x.note?'· '+x.note:''}</span><span class="v">${x.dose} mg</span></div>`;}).join('')+`<div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--border)"><div class="proto-summary-row"><span class="k">Total</span><span class="v">${tw} semanas</span></div><div class="proto-summary-row"><span class="k">Fin</span><span class="v">${eds}</span></div></div>`;}
+async function applyProto(){const p=currentProtoPeptide,sv=document.getElementById('proto-start').value;if(!sv){alert('Pon fecha de inicio');return;}activeProtocols[p]={startDate:sv,freq:parseInt(document.getElementById('proto-freq').value),peptido:p,phases:protoPhasesByPeptide[p].map(x=>({weeks:parseInt(x.weeks)||1,dose:parseFloat(x.dose)||0,note:x.note}))};setSyncing();try{await sb.from('user_protocol').upsert({user_id:currentUser.id,protocol_data:activeProtocols,updated_at:new Date().toISOString()},{onConflict:'user_id'});setSynced();}catch(e){setSyncErr();}renderActiveProtoList();renderCalendar();document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.getElementById('panel-calendario').classList.add('active');document.querySelectorAll('.tab')[4].classList.add('active');}
+function removeActiveProto(p){delete activeProtocols[p];sb.from('user_protocol').upsert({user_id:currentUser.id,protocol_data:activeProtocols,updated_at:new Date().toISOString()},{onConflict:'user_id'});renderActiveProtoList();renderCalendar();}
+function renderActiveProtoList(){const list=document.getElementById('active-proto-list'),keys=Object.keys(activeProtocols);if(!keys.length){list.innerHTML='<div style="color:var(--muted);font-size:0.78rem;padding:6px 0">Ningun protocolo activo</div>';return;}list.innerHTML=keys.map(p=>{const ap=activeProtocols[p],tw=ap.phases.reduce((s,x)=>s+x.weeks,0);const ed=fromDateKey(ap.startDate);ed.setDate(ed.getDate()+tw*7);const today=new Date();today.setHours(0,0,0,0);const dl=Math.ceil((ed-today)/86400000);return`<div class="active-proto-item" style="border-left-color:${PEPTIDE_COLORS[p]}"><div><div style="font-weight:600;font-size:0.84rem;display:flex;align-items:center;gap:6px"><span class="chip" style="background:${PEPTIDE_COLORS[p]}"></span>${PEPTIDE_NAMES[p]}</div><div style="font-size:0.71rem;color:var(--muted);margin-top:2px">${ap.startDate} → ${ed.toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'})} · ${dl>0?dl+' dias':' Finalizado'}</div></div><button class="btn sm danger" onclick="removeActiveProto('${p}')" style="margin-top:0">Quitar</button></div>`;}).join('');}
+
+// ── HELPERS ──────────────────────────────────────
+function toDateKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function fromDateKey(k){const[y,m,d]=k.split('-').map(Number);return new Date(y,m-1,d);}
+function getDoseForDate(peptido,key){const ap=activeProtocols[peptido];if(!ap)return null;const diff=Math.floor((fromDateKey(key)-fromDateKey(ap.startDate))/86400000);if(diff<0)return null;const wn=Math.floor(diff/7)+1;let cum=0;for(const p of ap.phases){cum+=p.weeks;if(wn<=cum)return p.dose;}return null;}
+function isDoseDay(peptido,key){const ap=activeProtocols[peptido];if(!ap)return false;const diff=Math.floor((fromDateKey(key)-fromDateKey(ap.startDate))/86400000);if(diff<0)return false;return getDoseForDate(peptido,key)!==null&&diff%ap.freq===0;}
+
+// ── TAB 5: CALENDAR ──────────────────────────────
+let calViewDate=new Date(),calSelectedDate=null;
+function changeMonth(d){calViewDate.setMonth(calViewDate.getMonth()+d);renderCalendar();}
+function renderCalendar(){
+  const now=new Date(),todayKey=toDateKey(now),year=calViewDate.getFullYear(),month=calViewDate.getMonth();
+  const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  document.getElementById('cal-month-label').textContent=MESES[month]+' '+year;
+  const activePeps=Object.keys(activeProtocols);
+  const legend=document.getElementById('cal-legend');
+  legend.innerHTML=activePeps.map(p=>`<div class="legend-item"><span class="chip" style="background:${PEPTIDE_COLORS[p]}"></span>${PEPTIDE_NAMES[p]}</div>`).join('')+(Object.keys(notesCache).length?'<div class="legend-item"><span class="chip" style="background:var(--warn)"></span>Nota</div>':'');
+  const grid=document.getElementById('cal-grid');grid.innerHTML='';
+  ['L','M','X','J','V','S','D'].forEach(d=>{const el=document.createElement('div');el.className='cal-dow';el.textContent=d;grid.appendChild(el);});
+  const firstDay=new Date(year,month,1);let off=firstDay.getDay()-1;if(off<0)off=6;
+  for(let i=0;i<off;i++){const el=document.createElement('div');el.className='cal-day empty';grid.appendChild(el);}
+  const dim=new Date(year,month+1,0).getDate();
+  for(let d=1;d<=dim;d++){
+    const dateObj=new Date(year,month,d),key=toDateKey(dateObj);
+    const el=document.createElement('div');el.className='cal-day';
+    el.innerHTML=`<span>${d}</span>`;
+    if(key===todayKey)el.classList.add('today');
+    if(calSelectedDate===key)el.classList.add('selected');
+    if(dateObj<now&&key!==todayKey)el.classList.add('past-day');
+    if(notesCache[key])el.classList.add('has-note');
+    const dp=activePeps.filter(p=>isDoseDay(p,key));
+    if(dp.length){const dd=document.createElement('div');dd.className='dose-dots';dp.forEach(p=>{const dot=document.createElement('div');dot.className='dose-dot';dot.style.background=PEPTIDE_COLORS[p];dd.appendChild(dot);});el.appendChild(dd);}
+    el.onclick=()=>selectDay(key);
+    el.addEventListener('mouseenter',e=>showTooltip(e,key,dp));
+    el.addEventListener('mouseleave',hideTooltip);
+    el.addEventListener('mousemove',moveTooltip);
+    let lpt=null;
+    el.addEventListener('touchstart',e=>{lpt=setTimeout(()=>showTooltip(e.touches[0],key,dp),400);},{passive:true});
+    el.addEventListener('touchend',()=>{clearTimeout(lpt);setTimeout(hideTooltip,2000);});
+    grid.appendChild(el);
+  }
+  if(calSelectedDate)showDayDetail(calSelectedDate);
+}
+const tooltip=document.getElementById('cal-tooltip');
+function showTooltip(e,key,dp){
+  const dateObj=fromDateKey(key);
+  const DIAS=['dom','lun','mar','mie','jue','vie','sab'];
+  const M2=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  document.getElementById('tt-title').textContent=`${DIAS[dateObj.getDay()]} ${dateObj.getDate()} ${M2[dateObj.getMonth()]}`.toUpperCase();
+  let html='';
+  if(dp.length)dp.forEach(p=>{const dose=getDoseForDate(p,key);html+=`<div class="cal-tooltip-item"><span class="chip" style="background:${PEPTIDE_COLORS[p]}"></span><span>${PEPTIDE_NAMES[p]}</span><span class="dose" style="color:${PEPTIDE_COLORS[p]}">${dose}mg</span></div>`;});
+  else html=`<div style="color:var(--muted);font-size:0.73rem">Descanso</div>`;
+  if(notesCache[key])html+=`<div style="margin-top:5px;font-size:0.7rem;color:var(--warn);border-top:1px solid var(--border);padding-top:5px">📝 ${notesCache[key].substring(0,55)}${notesCache[key].length>55?'...':''}</div>`;
+  document.getElementById('tt-body').innerHTML=html;
+  positionTooltip(e);tooltip.classList.add('visible');
+}
+function positionTooltip(e){const x=e.clientX,y=e.clientY,tw=210,th=100;let left=x+12,top=y-50;if(left+tw>window.innerWidth)left=x-tw-12;if(top+th>window.innerHeight)top=window.innerHeight-th-8;if(top<8)top=8;tooltip.style.left=left+'px';tooltip.style.top=top+'px';}
+function moveTooltip(e){if(tooltip.classList.contains('visible'))positionTooltip(e);}
+function hideTooltip(){tooltip.classList.remove('visible');}
+function selectDay(key){calSelectedDate=key;renderCalendar();showDayDetail(key);loadNoteForDay(key);document.getElementById('day-detail').classList.add('visible');}
+function showDayDetail(key){
+  const body=document.getElementById('day-detail-body'),title=document.getElementById('day-detail-title');
+  const dateObj=fromDateKey(key),todayKey=toDateKey(new Date());
+  const DIAS=['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
+  const M2=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const isToday=key===todayKey;
+  title.textContent=isToday?`// HOY - ${DIAS[dateObj.getDay()]} ${dateObj.getDate()} ${M2[dateObj.getMonth()]}`:`// ${DIAS[dateObj.getDay()].toUpperCase()} ${dateObj.getDate()} ${M2[dateObj.getMonth()].toUpperCase()} ${dateObj.getFullYear()}`;
+  const activePeps=Object.keys(activeProtocols),dp=activePeps.filter(p=>isDoseDay(p,key)),isPast=dateObj<new Date()&&!isToday;
+  if(dp.length){
+    var dayHtml='';
+    dp.forEach(function(p){
+      var dose=getDoseForDate(p,key),ap=activeProtocols[p];
+      var diff=Math.floor((dateObj-fromDateKey(ap.startDate))/86400000),wn=Math.floor(diff/7)+1;
+      var pn='';var cum=0;
+      for(var phi=0;phi<ap.phases.length;phi++){cum+=ap.phases[phi].weeks;if(wn<=cum){pn=ap.phases[phi].note;break;}}
+      dayHtml+='<div class="task-item">'
+        +'<div style="width:7px;height:7px;border-radius:50%;background:'+PEPTIDE_COLORS[p]+';margin-top:5px;flex-shrink:0"></div>'
+        +'<div><div class="task-name">💉 '+(isPast?'Administrado':'Toca inyeccion')+' — '+PEPTIDE_NAMES[p]+'</div>'
+        +'<div class="task-sub"><strong style="color:'+PEPTIDE_COLORS[p]+'">'+dose+' mg</strong> &middot; '+PEPTIDE_ZONES[p]+' &middot; Sem '+wn+(pn?' &middot; '+pn:'')+'</div>'
+        +'</div></div>';
+    });
+    dayHtml+='<div class="task-item"><div style="width:7px;height:7px;border-radius:50%;background:var(--warn);margin-top:5px;flex-shrink:0"></div><div><div class="task-name">📋 Registrar peso y sintomas</div></div></div>'
+      +'<div class="task-item"><div style="width:7px;height:7px;border-radius:50%;background:var(--muted);margin-top:5px;flex-shrink:0"></div><div><div class="task-name">🔄 Rotar zona de inyeccion</div></div></div>';
+    body.innerHTML=dayHtml;
+  }else{
+    var nxt='';
+    var ap2=Object.keys(activeProtocols);
+    for(var dd=1;dd<=60;dd++){
+      var nd=new Date(dateObj);nd.setDate(nd.getDate()+dd);
+      var nk=toDateKey(nd);
+      var np=ap2.filter(function(p){return isDoseDay(p,nk);});
+      if(np.length){
+        var parts=np.map(function(p){return '<span style="color:'+PEPTIDE_COLORS[p]+'">'+PEPTIDE_NAMES[p]+' '+getDoseForDate(p,nk)+'mg</span>';}).join(', ');
+        nxt='<div style="margin-top:7px;font-size:0.73rem;color:var(--muted)">Proxima en <strong style="color:var(--text)">'+dd+' dia'+(dd!==1?'s':'')+'</strong>: '+parts+'</div>';
+        break;
+      }
+    }
+    body.innerHTML='<div class="no-dose-msg"><div style="font-size:1.2rem;margin-bottom:6px">😴</div><div style="color:var(--text);font-weight:600;margin-bottom:2px">Descanso</div>'+nxt+'</div>';
+  }
+}
+async function saveNote(){if(!calSelectedDate||!currentUser)return;const text=document.getElementById('day-note').value.trim();setSyncing();try{if(text){await sb.from('cal_notes').upsert({user_id:currentUser.id,date_key:calSelectedDate,note:text},{onConflict:'user_id,date_key'});notesCache[calSelectedDate]=text;}else{await sb.from('cal_notes').delete().eq('user_id',currentUser.id).eq('date_key',calSelectedDate);delete notesCache[calSelectedDate];}setSynced();const m=document.getElementById('note-saved-msg');m.classList.add('show');setTimeout(()=>m.classList.remove('show'),2000);renderCalendar();}catch(e){setSyncErr();}}
+function loadNoteForDay(key){document.getElementById('day-note').value=notesCache[key]||'';}
+
+// ── TAB 6: PEPCALC ───────────────────────────────
+let pcSyringeML=0.3,pcSyringeUnits=30,pcVialVal=5,pcWaterVal=1,pcDoseVal=50;
+function selectSyringe(el,ml,units){document.querySelectorAll('.syringe-opt').forEach(s=>s.classList.remove('selected'));el.classList.add('selected');pcSyringeML=ml;pcSyringeUnits=units;calcPepCalc();}
+function selectPill(el,groupId,otherId,hiddenId){const group=document.getElementById(groupId);group.querySelectorAll('.pill').forEach(p=>p.classList.remove('selected'));el.classList.add('selected');const val=el.dataset.val;const otherDiv=document.getElementById(otherId);if(val==='other'){otherDiv.classList.add('show');}else{otherDiv.classList.remove('show');document.getElementById(hiddenId).value=val;if(groupId==='pc-vial-pills')pcVialVal=parseFloat(val);else if(groupId==='pc-water-pills')pcWaterVal=parseFloat(val);else if(groupId==='pc-dose-pills')pcDoseVal=parseFloat(val);calcPepCalc();}}
+function calcPepCalc(){
+  if(!pcVialVal||!pcWaterVal||!pcDoseVal||!pcSyringeML||!pcSyringeUnits)return;
+
+  // ── Calculation ──────────────────────────────
+  var concMcgMl = (pcVialVal / pcWaterVal) * 1000;   // mcg per ml
+  var volNeeded  = pcDoseVal / concMcgMl;              // ml needed
+  var mlPerUnit  = pcSyringeML / pcSyringeUnits;       // ml per unit mark
+  var unitsNeeded = volNeeded / mlPerUnit;             // unit mark to pull to
+
+  var pct = Math.min(unitsNeeded / pcSyringeUnits, 1);
+
+  document.getElementById('pc-result').style.display = 'block';
+  document.getElementById('pc-result-text').innerHTML =
+    'Para una dosis de <strong>' + pcDoseVal + ' mcg</strong> llena hasta la marca ' +
+    '<strong>' + unitsNeeded.toFixed(1) + '</strong> de la jeringa ' +
+    '<span style="color:var(--muted);font-size:0.82em">(' + volNeeded.toFixed(3) + ' ml)</span>';
+
+  // ── Draw syringe SVG ─────────────────────────
+  var svg = document.getElementById('pc-syringe-svg');
+  var W = 560, H = 110;
+  var bodyX = 30, bodyY = 28, bodyW = 440, bodyH = 54;
+  var tipX = bodyX + bodyW, tipY = bodyY + bodyH/2 - 6, tipW = 30, tipH = 12;
+  var needleX = tipX + tipW, needleY = bodyY + bodyH/2 - 2, needleW = 50, needleH = 4;
+  var plungerHandleW = 20;
+  // Plunger position: 0 = fully pushed (right), pcSyringeUnits = fully pulled (left)
+  // We want to show pulling: plunger at pct means pct of barrel filled from right (needle end)
+  // Plunger face x = bodyX + (1-pct)*bodyW  (pulled back from right)
+  var plungerX = bodyX + (1 - pct) * bodyW;
+
+  var ns = 'http://www.w3.org/2000/svg';
+
+  function el(tag, attrs) {
+    var e = document.createElementNS(ns, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  // Clear
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  svg.setAttribute('viewBox', '0 0 ' + (W) + ' ' + H);
+
+  // ── Barrel body ──
+  svg.appendChild(el('rect',{x:bodyX,y:bodyY,width:bodyW,height:bodyH,rx:5,fill:'#1e1e2a',stroke:'#3a3a4a','stroke-width':2}));
+
+  // ── Liquid fill (from needle end = right, back to plunger face) ──
+  var fillW = pct * bodyW;
+  var fillX = bodyX + bodyW - fillW;
+  if(fillW > 0){
+    svg.appendChild(el('rect',{x:fillX,y:bodyY+2,width:fillW,height:bodyH-4,rx:3,fill:'rgba(124,106,255,0.35)'}));
+    // Shine
+    svg.appendChild(el('rect',{x:fillX,y:bodyY+4,width:fillW,height:8,rx:2,fill:'rgba(124,106,255,0.2)'}));
+  }
+
+  // ── Tick marks ──
+  var totalUnits = pcSyringeUnits;
+  var minorEvery = totalUnits <= 30 ? 1 : 2;
+  var majorEvery = totalUnits <= 30 ? 5 : 10;
+  for(var u = 0; u <= totalUnits; u += minorEvery){
+    var tx = bodyX + (1 - u/totalUnits) * bodyW; // right=0, left=max
+    var isMajor = u % majorEvery === 0;
+    var tickH = isMajor ? 16 : 8;
+    var tickY = bodyY + bodyH - tickH;
+    svg.appendChild(el('line',{x1:tx,y1:tickY,x2:tx,y2:bodyY+bodyH,stroke:isMajor?'#8080a0':'#4a4a5a','stroke-width':isMajor?1.5:1}));
+    if(isMajor && u > 0){
+      var lbl = document.createElementNS(ns,'text');
+      lbl.setAttribute('x', tx);
+      lbl.setAttribute('y', bodyY + bodyH - 18);
+      lbl.setAttribute('text-anchor','middle');
+      lbl.setAttribute('font-size','11');
+      lbl.setAttribute('font-family','Space Mono, monospace');
+      lbl.setAttribute('fill','#6b6b80');
+      lbl.textContent = u;
+      svg.appendChild(lbl);
+    }
+  }
+
+  // ── Target marker (accent2 line) ──
+  var markerX = bodyX + (1 - pct) * bodyW;
+  svg.appendChild(el('line',{x1:markerX,y1:bodyY-6,x2:markerX,y2:bodyY+bodyH+6,stroke:'#4fffb0','stroke-width':2.5,'stroke-dasharray':'4,2'}));
+  var markerLbl = document.createElementNS(ns,'text');
+  markerLbl.setAttribute('x', markerX);
+  markerLbl.setAttribute('y', bodyY - 10);
+  markerLbl.setAttribute('text-anchor','middle');
+  markerLbl.setAttribute('font-size','12');
+  markerLbl.setAttribute('font-family','Space Mono, monospace');
+  markerLbl.setAttribute('fill','#4fffb0');
+  markerLbl.setAttribute('font-weight','bold');
+  markerLbl.textContent = unitsNeeded.toFixed(1) + 'U';
+  svg.appendChild(markerLbl);
+
+  // ── Plunger ──
+  // Rod
+  svg.appendChild(el('rect',{x:bodyX - plungerHandleW,y:bodyY+bodyH/2-3,width:plungerX - bodyX + plungerHandleW,height:6,rx:2,fill:'#5a5a7a'}));
+  // Face disc
+  svg.appendChild(el('rect',{x:plungerX-4,y:bodyY+4,width:8,height:bodyH-8,rx:3,fill:'#9090c0'}));
+  // Handle
+  svg.appendChild(el('rect',{x:bodyX - plungerHandleW,y:bodyY+bodyH/2-10,width:plungerHandleW,height:20,rx:3,fill:'#5a5a7a'}));
+  svg.appendChild(el('line',{x1:bodyX-plungerHandleW,y1:bodyY+bodyH/2-10,x2:bodyX-plungerHandleW,y2:bodyY+bodyH/2+10,stroke:'#4a4a6a','stroke-width':2}));
+
+  // ── Tip (cone) ──
+  var tipPath = 'M '+tipX+' '+bodyY+' L '+(tipX+tipW)+' '+(bodyY+bodyH/2)+' L '+tipX+' '+(bodyY+bodyH)+' Z';
+  svg.appendChild(el('path',{d:tipPath,fill:'#2a2a3a',stroke:'#3a3a4a','stroke-width':1.5}));
+
+  // ── Needle ──
+  svg.appendChild(el('rect',{x:needleX,y:needleY,width:needleW,height:needleH,rx:1.5,fill:'#c0c0d0'}));
+  // Needle tip
+  svg.appendChild(el('polygon',{points:(needleX+needleW)+','+(needleY)+' '+(needleX+needleW+8)+','+(needleY+needleH/2)+' '+(needleX+needleW)+','+(needleY+needleH),fill:'#a0a0b0'}));
+
+  // ── Barrel outline on top (clean look) ──
+  svg.appendChild(el('rect',{x:bodyX,y:bodyY,width:bodyW,height:bodyH,rx:5,fill:'none',stroke:'#3a3a5a','stroke-width':2}));
+}
+
+async function savePepCalc(){
+  if(!currentUser)return;
+  const unitsNeeded=(pcDoseVal/(pcVialVal/pcWaterVal*1000))*pcSyringeUnits;
+  const pepName=document.getElementById('pc-pep-name').value.trim()||'Sin nombre';
+  const note=document.getElementById('pc-note').value.trim();
+  setSyncing();
+  try{
+    await sb.from('pepcalc_history').insert({user_id:currentUser.id,peptide_name:pepName,syringe_ml:pcSyringeML,vial_mg:pcVialVal,bac_water_ml:pcWaterVal,dose_mcg:pcDoseVal,units_to_pull:parseFloat(unitsNeeded.toFixed(1)),note});
+    setSynced();
+    await loadPepCalcHistory();
+    document.getElementById('pc-note').value='';
+    alert('Guardado en historial');
+  }catch(e){setSyncErr();}
+}
+async function loadPepCalcHistory(){
+  if(!currentUser)return;
+  const{data}=await sb.from('pepcalc_history').select('*').eq('user_id',currentUser.id).order('saved_at',{ascending:false}).limit(20);
+  const list=document.getElementById('pepcalc-history-list');
+  if(!data||!data.length){list.innerHTML='<div style="color:var(--muted);font-size:0.78rem">Sin historial aun</div>';return;}
+  list.innerHTML=data.map(function(h){
+    var d=new Date(h.saved_at).toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'});
+    return '<div class="pepcalc-hist-item">'
+      +'<div class="pepcalc-hist-header">'
+      +'<span class="pepcalc-hist-pep">'+h.peptide_name+'</span>'
+      +'<span class="pepcalc-hist-date">'+d+'</span>'
+      +'</div>'
+      +'<div class="pepcalc-hist-detail">'
+      +'Jeringa '+h.syringe_ml+'ml &middot; Vial '+h.vial_mg+'mg &middot; Agua '+h.bac_water_ml+'ml &middot; Dosis '+h.dose_mcg+'mcg &rarr; '
+      +'<strong style="color:var(--accent2)">'+h.units_to_pull+'U</strong>'
+      +(h.note?'<br><span style="color:var(--muted)">'+h.note+'</span>':'')
+      +'</div></div>';
+  }).join('');
+}
+
+// ── TAB 7: PROGRESO ──────────────────────────────
+let selectedPhotos=[];
+function handlePhotoSelect(e){
+  const files=Array.from(e.target.files).slice(0,2);
+  selectedPhotos=files;
+  const preview=document.getElementById('prog-photo-preview');
+  if(!files.length){preview.style.display='none';return;}
+  preview.style.display='grid';
+  preview.innerHTML=files.map(f=>`<div class="photo-thumb"><img src="${URL.createObjectURL(f)}"></div>`).join('');
+}
+async function saveProgressEntry(){
+  if(!currentUser)return;
+  const date=document.getElementById('prog-date').value;
+  const weight=parseFloat(document.getElementById('prog-weight').value)||null;
+  const note=document.getElementById('prog-note').value.trim();
+  if(!date){alert('Pon la fecha');return;}
+  setSyncing();
+  try{
+    await sb.from('progress_log').upsert({user_id:currentUser.id,log_date:date,weight,note},{onConflict:'user_id,log_date'});
+    for(let i=0;i<selectedPhotos.length;i++){
+      const file=selectedPhotos[i];
+      const ext=file.name.split('.').pop();
+      const path=currentUser.id+'/'+date+'_'+i+'.'+ext;
+      await sb.storage.from('progress-photos').upload(path,file,{upsert:true});
+      const urlData=sb.storage.from('progress-photos').getPublicUrl(path);
+      await sb.from('progress_photos').insert({user_id:currentUser.id,log_date:date,photo_url:urlData.data.publicUrl});
+    }
+    setSynced();
+    selectedPhotos=[];
+    document.getElementById('prog-photo-preview').style.display='none';
+    document.getElementById('prog-photo-input').value='';
+    document.getElementById('prog-weight').value='';
+    document.getElementById('prog-note').value='';
+    document.getElementById('prog-date').value=toDateKey(new Date());
+    await loadProgressLog();
+  }catch(e){setSyncErr();console.error(e);}
+}
+async function loadProgressLog(){
+  const list=document.getElementById('progress-log-list');
+  if(!currentUser){list.innerHTML='<div style="color:var(--muted);font-size:0.78rem">Inicia sesion para ver el historial</div>';return;}
+  try{
+    const logR=await sb.from('progress_log').select('*').eq('user_id',currentUser.id).order('log_date',{ascending:false}).limit(30);
+    const photosR=await sb.from('progress_photos').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+    if(logR.error)throw logR.error;
+    const logs=logR.data||[],photos=photosR.data||[];
+    const withWeight=logs.filter(function(l){return l.weight;});
+    if(withWeight.length>1){
+      document.getElementById('prog-chart-card').style.display='block';
+      drawWeightChart(withWeight.slice().reverse());
+    }
+    if(!logs.length){list.innerHTML='<div style="color:var(--muted);font-size:0.78rem">Sin entradas aun — guarda tu primera entrada arriba</div>';return;}
+    const photosByDate={};
+    photos.forEach(function(p){if(!photosByDate[p.log_date])photosByDate[p.log_date]=[];photosByDate[p.log_date].push(p.photo_url);});
+    list.innerHTML=logs.map(function(l){
+      const ps=photosByDate[l.log_date]||[];
+      return '<div class="progress-log-item">'
+        +'<div class="plog-header"><span class="plog-date">'+l.log_date+'</span>'+(l.weight?'<span class="plog-weight">'+l.weight+' kg</span>':'')+'</div>'
+        +(l.note?'<div class="plog-note">'+l.note+'</div>':'')
+        +'<div class="plog-photos">'+ps.map(function(url){return '<img class="plog-photo" src="'+url+'" onclick="openLightbox(this.src)" loading="lazy">';}).join('')+'</div>'
+        +'</div>';
+    }).join('');
+  }catch(e){
+    console.error('loadProgressLog error:',e);
+    list.innerHTML='<div style="color:var(--danger);font-size:0.78rem">Error cargando datos: '+e.message+'</div>';
+  }
+}
+function drawWeightChart(weights){
+  const canvas=document.getElementById('weight-canvas');
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const W=canvas.parentElement.offsetWidth*2||600;
+  canvas.width=W;canvas.height=240;
+  const H=240,pad=50;
+  ctx.clearRect(0,0,W,H);
+  const vals=weights.map(w=>w.weight);
+  const mn=Math.min(...vals)-0.5,mx=Math.max(...vals)+0.5;
+  const xStep=(W-pad*2)/Math.max(weights.length-1,1);
+  const yScale=v=>(H-pad*2)-(v-mn)/(mx-mn)*(H-pad*2)+pad;
+  ctx.strokeStyle='#2a2a35';ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const y=pad+(H-pad*2)/4*i;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(W-pad,y);ctx.stroke();}
+  ctx.beginPath();ctx.strokeStyle='#7c6aff';ctx.lineWidth=3;ctx.lineJoin='round';
+  weights.forEach((w,i)=>{const x=pad+i*xStep,y=yScale(w.weight);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});
+  ctx.stroke();
+  weights.forEach((w,i)=>{const x=pad+i*xStep,y=yScale(w.weight);ctx.beginPath();ctx.fillStyle='#4fffb0';ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();});
+  ctx.fillStyle='#6b6b80';ctx.font='18px monospace';ctx.textAlign='center';
+  weights.forEach((w,i)=>{if(i%Math.ceil(weights.length/6)===0){ctx.fillText(w.log_date.slice(5),pad+i*xStep,H-8);}});
+}
+function openLightbox(url){document.getElementById('lightbox-img').src=url;document.getElementById('lightbox').classList.add('show');}
+function closeLightbox(){document.getElementById('lightbox').classList.remove('show');}
+// ── INIT ──────────────────────────────────────────
+updateEscalada();
+calcPepCalc();
+</script>
+</body>
+</html>
