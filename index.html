@@ -548,7 +548,14 @@ function clearStaleAuthStorage(){
   Object.keys(localStorage).filter(k=>k.startsWith('sb-')).forEach(k=>localStorage.removeItem(k));
   Object.keys(sessionStorage).filter(k=>k.startsWith('sb-')).forEach(k=>sessionStorage.removeItem(k));
 }
-const sb=supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{storage:authStorage,persistSession:true,autoRefreshToken:true}});
+// La causa real del "se cuelga la segunda vez": supabase-js coordina getSession/signIn/refresh
+// internamente con navigator.locks para evitar carreras entre pestañas. Confirmado en vivo (con
+// datos reales): tras la primera sesion ese lock se queda pillado para siempre y CUALQUIER llamada
+// de auth posterior (getSession, las consultas de datos que necesitan el token) se cuelga sin fin,
+// sin lanzar error ni tocar la red - por eso no habia forma de detectarlo con timeouts. Al desactivar
+// el bloqueo (esta app es de una sola pestaña, no necesita coordinar sesion entre varias) el mismo
+// getSession que llevaba minutos colgado responde al instante.
+const sb=supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{storage:authStorage,persistSession:true,autoRefreshToken:true,lock:(name,acquireTimeout,fn)=>fn()}});
 let currentUser=null,notesCache={},activeProtocols={},currentProtoPeptide='retatrutide';
 const PEPTIDE_COLORS={retatrutide:'#7c6aff',ghkcu:'#4fffb0',mt2:'#ff9f43',custom:'#ff6b9d'};
 const PEPTIDE_NAMES={retatrutide:'Retatrutide',ghkcu:'GHK-Cu',mt2:'Melanotan 2',custom:'Custom'};
