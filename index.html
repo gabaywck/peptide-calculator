@@ -599,54 +599,48 @@ function withTimeout(promise,ms,label){
 let authMode='login';
 function switchAuthTab(m,el){authMode=m;document.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active'));el.classList.add('active');document.getElementById('auth-btn').textContent=m==='login'?'Entrar':'Crear cuenta';document.getElementById('auth-msg').classList.remove('show');}
 function showAuthMsg(txt,type){const e=document.getElementById('auth-msg');e.textContent=txt;e.className='auth-msg show '+type;}
-async function authSubmit(email,pass,retry){
-  const isRetry=email!==undefined;
-  if(!isRetry){email=document.getElementById('auth-email').value.trim();pass=document.getElementById('auth-pass').value;}
+async function authSubmit(){
+  const email=document.getElementById('auth-email').value.trim(),pass=document.getElementById('auth-pass').value;
   if(!email||!pass){showAuthMsg('Rellena email y contrasena','error');return;}
   localStorage.setItem(REMEMBER_KEY,document.getElementById('auth-remember').checked?'1':'0');
   document.getElementById('auth-btn').textContent='...';
+  // Importante: Supabase a veces responde lento (segundos), pero SI responde. No se abandona ni se
+  // borra nada por tardar - solo se avisa si de verdad no llega nunca respuesta (60s, seria red caida).
+  const slow=setTimeout(()=>showDebug('Sigue esperando respuesta de Supabase (login)... puede tardar unos segundos.'),8000);
   try{
     if(authMode==='login'){
-      const{error}=await withTimeout(sb.auth.signInWithPassword({email,password:pass}),10000,'login');
-      if(error){
-        showAuthMsg(error.message,'error');
-        showDebug('Login fallo ('+(error.code||error.status||'?')+'): '+error.message+(retry?' [tras limpiar storage]':''));
-        document.getElementById('auth-btn').textContent='Entrar';
-      }
+      const{error}=await withTimeout(sb.auth.signInWithPassword({email,password:pass}),60000,'login');
+      if(error){showAuthMsg(error.message,'error');showDebug('Login fallo ('+(error.code||error.status||'?')+'): '+error.message);}
+      document.getElementById('auth-btn').textContent='Entrar';
     }else{
-      const{error}=await withTimeout(sb.auth.signUp({email,password:pass}),10000,'registro');
+      const{error}=await withTimeout(sb.auth.signUp({email,password:pass}),60000,'registro');
       if(error){showAuthMsg(error.message,'error');showDebug('Registro fallo: '+error.message);}else{showAuthMsg('Cuenta creada! Revisa tu email.','success');}
       document.getElementById('auth-btn').textContent='Crear cuenta';
     }
   }catch(e){
-    // Sesion anterior corrupta (token invalido), o la peticion de red se colgo sin responder
-    // (visto en pruebas reales: el POST a Supabase se queda "pending" para siempre) - en ambos
-    // casos se limpia el storage local y se reintenta una vez antes de rendirse.
-    showDebug('Excepcion en authSubmit'+(retry?' (2o intento)':'')+': '+(e?.message||e));
-    if(!retry){clearStaleAuthStorage();return authSubmit(email,pass,true);}
-    showAuthMsg('No se pudo conectar con el servidor. Revisa tu conexion e intenta de nuevo.','error');
+    showDebug('Excepcion en authSubmit: '+(e?.message||e));
+    showAuthMsg('No se pudo conectar con el servidor tras 60s. Revisa tu conexion e intenta de nuevo.','error');
     document.getElementById('auth-btn').textContent=authMode==='login'?'Entrar':'Crear cuenta';
-  }
+  }finally{clearTimeout(slow);}
 }
 async function doLogout(){
-  try{await withTimeout(sb.auth.signOut(),6000,'logout');}catch(e){showDebug('signOut excepcion/timeout: '+(e?.message||e));}
+  try{await sb.auth.signOut();}catch(e){showDebug('signOut excepcion: '+(e?.message||e));}
   clearStaleAuthStorage();currentUser=null;notesCache={};activeProtocols={};document.getElementById('app-screen').style.display='none';document.getElementById('auth-screen').style.display='block';
 }
 sb.auth.onAuthStateChange(async(ev,session)=>{
   console.log('[peptide-calc] onAuthStateChange:',ev,session?.user?'con sesion':'sin sesion');
   if(session?.user){currentUser=session.user;document.getElementById('auth-screen').style.display='none';document.getElementById('app-screen').style.display='block';document.getElementById('user-email-display').textContent=currentUser.email;await loadAllData();}
 });
-// Al cargar la pagina, si hay una sesion guardada corrupta o con el token de refresco caducado,
-// Supabase la rechaza con un error en vez de simplemente dejarte fuera: antes esto dejaba la app
-// "rota" hasta borrar cookies/datos del sitio a mano. Ahora se detecta y se limpia sola.
+// Al cargar la pagina, si hay una sesion guardada con el token de refresco caducado/invalido de
+// verdad, Supabase la rechaza con un error - eso si se limpia sola. Pero OJO: una respuesta lenta
+// (visto en pruebas reales, Supabase a veces tarda) NO es lo mismo que una sesion invalida, y antes
+// se estaba borrando la sesion buena solo por tardar en confirmar - eso perdia el login sin motivo.
 (async function initAuth(){
   try{
-    const{error}=await withTimeout(sb.auth.getSession(),10000,'getSession inicial');
+    const{error}=await sb.auth.getSession();
     if(error){showDebug('getSession error: '+error.message);clearStaleAuthStorage();showAuthMsg('Tu sesion anterior caduco, inicia sesion de nuevo.','error');}
   }catch(e){
-    showDebug('getSession excepcion/timeout: '+(e?.message||e));
-    clearStaleAuthStorage();
-    showAuthMsg('No se pudo conectar con Supabase al cargar. Inicia sesion de nuevo.','error');
+    showDebug('getSession excepcion: '+(e?.message||e));
   }
 })();
 
@@ -659,14 +653,16 @@ function setSyncErr(){document.getElementById('sync-dot').className='sync-dot er
 // Confirmado en vivo: las consultas a Supabase a veces tardan bastante mas de 10s en responder
 // (no se cuelgan, solo van lentas), y un timeout corto + reintento las estaba dando por muertas
 // y descartando los datos justo antes de que llegaran - eso era el parpadeo (syncing->error->syncing).
-// Con un solo intento y margen amplio, se deja tiempo real a que la respuesta (lenta) llegue.
+// Ahora se espera de verdad a la respuesta real (por lenta que sea) en vez de abandonarla a los 10s.
 async function loadAllData(){
   setSyncing();
+  const slow=setTimeout(()=>showDebug('La carga de datos esta tardando mas de lo normal, esperando a Supabase...'),8000);
   try{
-    const[notesR,protoR]=await withTimeout(Promise.all([
+    const[notesR,protoR]=await Promise.all([
       sb.from('cal_notes').select('date_key,note').eq('user_id',currentUser.id),
       sb.from('user_protocol').select('protocol_data').eq('user_id',currentUser.id).maybeSingle()
-    ]),30000,'carga de datos');
+    ]);
+    clearTimeout(slow);
     if(notesR.error||protoR.error){
       const msg=(notesR.error||protoR.error).message;
       showDebug('loadAllData query error ('+(notesR.error?.code||protoR.error?.code||'?')+'): '+msg);
@@ -681,6 +677,7 @@ async function loadAllData(){
     }
     setSynced();
   }catch(e){
+    clearTimeout(slow);
     showDebug('loadAllData excepcion: '+(e?.message||e));
     setSyncErr();
   }
